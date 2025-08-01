@@ -1,0 +1,1 @@
+export { ProjectileManager } from './ProjectileManager';
