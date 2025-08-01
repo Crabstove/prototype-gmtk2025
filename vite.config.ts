@@ -5,7 +5,7 @@ import topLevelAwait from 'vite-plugin-top-level-await'
 export default defineConfig({
   plugins: [
     wasm(),
-    topLevelAwait()
+    topLevelAwait(),
   ],
   server: {
     port: 3000,
@@ -13,4 +13,5 @@ export default defineConfig({
   build: {
     target: 'esnext',
   },
+  base: "/prototype-gmtk2025"
 })
