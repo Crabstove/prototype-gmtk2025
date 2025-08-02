@@ -100,7 +100,7 @@ export class Game {
     this.updateEntities(deltaTime);
     
     // Update camera
-    this.updateCamera();
+    this.updateCamera(deltaTime);
   }
   
   private handleInput(actions: any, isAiming: boolean, scaledDeltaTime: number): void {
@@ -205,15 +205,17 @@ export class Game {
     return this.level;
   }
   
-  private updateCamera(): void {
+  private updateCamera(deltaTime: number): void {
     // Simple camera lerp to follow player
     const playerPos = this.player.getPosition();
     const targetX = -playerPos.x + GAME_CONFIG.WIDTH / 2;
     const targetY = -playerPos.y + GAME_CONFIG.HEIGHT / 2;
     
-    // Smooth lerp toward target each frame
-    this.cameraContainer.x += (targetX - this.cameraContainer.x) * CAMERA_CONFIG.LERP_FACTOR;
-    this.cameraContainer.y += (targetY - this.cameraContainer.y) * CAMERA_CONFIG.LERP_FACTOR;
+    // Framerate-independent smooth lerp using exponential decay
+    // LERP_FACTOR of 0.1 at 60fps means ~90% reduction per second
+    const lerpSpeed = 1 - Math.pow(1 - CAMERA_CONFIG.LERP_FACTOR, deltaTime * 60);
+    this.cameraContainer.x += (targetX - this.cameraContainer.x) * lerpSpeed;
+    this.cameraContainer.y += (targetY - this.cameraContainer.y) * lerpSpeed;
   }
   
   // Called by Player when throwing boomerang

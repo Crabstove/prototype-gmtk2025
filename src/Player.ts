@@ -170,7 +170,8 @@ export class Player {
         // Don't override velocity if we just initiated the slide
         if (!this.slideInitiated) {
           // Very gentle deceleration to maintain momentum
-          const decayRate = Math.pow(0.97, deltaTime * 60); // Only 2% speed loss per frame
+          // Original: 0.97^60 ≈ 0.165 remaining after 1 second (83.5% loss)
+          const decayRate = Math.pow(0.165, deltaTime); // Exponential decay to 16.5% after 1 second
           this.velocity.x *= decayRate;
         }
         this.slideInitiated = false; // Clear flag after first frame
@@ -195,7 +196,8 @@ export class Player {
         // Apply air friction for high-speed movement (from launches)
         if (Math.abs(this.velocity.x) > PLAYER_CONFIG.MOVE_SPEED * 2) {
           // Strong air drag for launched states
-          const airDrag = Math.pow(0.92, deltaTime * 60); // 8% reduction per frame at 60fps
+          // Original: 0.92^60 ≈ 0.0066 remaining after 1 second (99.34% loss)
+          const airDrag = Math.pow(0.0066, deltaTime); // Exponential decay to 0.66% after 1 second
           this.velocity.x *= airDrag;
         } else {
           // Improved air control with faster response
