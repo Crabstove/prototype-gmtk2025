@@ -7,19 +7,15 @@ export const GAME_CONFIG = {
 
 export const PHYSICS = {
   // Core physics
-  GRAVITY: { x: 0.0, y: 9.81 },  // Standard platformer gravity
+  GRAVITY: { x: 0.0, y: 9.81 },  // Proper platformer gravity (pixels/s²)
   FIXED_TIME_STEP: 1 / 60,
-  FALL_GRAVITY_MULTIPLIER: 40,  // Applied when falling for snappy feel
-  MAX_FALL_SPEED: 500,  // Terminal velocity
+  FALL_GRAVITY_MULTIPLIER: 50,  // Slight boost when falling for snappy feel
+  MAX_FALL_SPEED: 600,  // Terminal velocity
   
   // Collision and detection
   PLAYER_MOUNT_OFFSET: 20,  // Y offset when player rides boomerang
   CATCH_DISTANCE: 30,  // Distance to catch boomerang
-  WALL_CHECK_DISTANCE: 3,  // Extra distance for wall detection
-  WALL_EMBED_THRESHOLD: 2,  // Pixels before push force applied
   VELOCITY_EPSILON: 0.001,  // Minimum velocity change to update
-  AIRBORNE_VELOCITY_THRESHOLD: 50,  // Y velocity threshold for wall slide
-  WALL_SLIDE_VELOCITY_THRESHOLD: 5,  // X velocity threshold for wall slide
   CATCH_COOLDOWN: 0.2,  // Cooldown after catching before can aim again
   STRAIGHT_LINE_DISMOUNT_BOOST: -200,  // Upward boost when dismounting from straight trajectory
   STRAIGHT_LINE_Y_THRESHOLD: 10,  // Y velocity below this is considered straight line
@@ -30,20 +26,18 @@ export const PLAYER_CONFIG = {
   HEIGHT: 48,
   CROUCH_HEIGHT: 18,
   COLOR: 0xff6b6b,
-  MOVE_SPEED: 180,
-  CROUCH_MOVE_SPEED: 90,  // Half speed while crouched
-  SLIDE_SPEED: 270,  // 1.5x move speed for noticeable boost
-  MAX_SLIDE_SPEED: 360,  // 2x move speed for slopes
+  MOVE_SPEED: 170,
+  CROUCH_MOVE_SPEED: 90, 
+  SLIDE_SPEED: 300,  // 1.5x move speed for noticeable boost
+  MAX_SLIDE_SPEED: 400,  // 2x move speed for slopes
   ACCELERATION_TIME: 0.2,  // Time in seconds to reach max speed
   DECELERATION_TIME: 0.15,  // Time in seconds to stop from max speed
-  SLIDE_DECELERATION: 150,  // Still using physics-based for slides
+  SLIDE_DECELERATION_TIME: 0.45,  // Time for slide to decelerate to zero
   SLIDE_TO_CROUCH_TIME: 0.5,  // Time at zero velocity before slide->crouch transition
   FRICTION: 0.7,
   RESTITUTION: 0,
   VELOCITY_THRESHOLD: 10,
-  GROUND_CHECK_DISTANCE: 2,
-  WALL_SEPARATION_FORCE: 5,  // Force applied to push away from walls
-  WALL_SLIDE_DAMPING: 0.9,  // Velocity reduction when sliding against walls
+  GROUND_CHECK_DISTANCE: 2
 } as const;
 
 export const CAMERA_CONFIG = {

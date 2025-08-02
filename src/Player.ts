@@ -19,13 +19,10 @@ export class Player {
   private isGrounded = true;
   private isFacingRight = true;
   private groundRaycast: RAPIER.Ray;
-  private leftWallRaycast: RAPIER.Ray;
-  private rightWallRaycast: RAPIER.Ray;
   private previousState: PlayerState = PlayerState.Idle;
   private trajectoryGraphics: PIXI.Graphics;
   private aimAngle: number = 180; // Default aim angle - straight ahead (degrees)
   private isAiming: boolean = false;
-  private isTouchingWall: boolean = false;
   private currentColliderHeight: number = PLAYER_CONFIG.HEIGHT;
   private gameInstance: any = null;  // Reference to Game for spawning boomerang
   private parryWindowTime: number = 0;
@@ -54,14 +51,6 @@ export class Player {
     this.groundRaycast = new RapierModule.Ray(
       { x: 0, y: 0 },
       { x: 0, y: 1 }
-    );
-    this.leftWallRaycast = new RapierModule.Ray(
-      { x: 0, y: 0 },
-      { x: -1, y: 0 }
-    );
-    this.rightWallRaycast = new RapierModule.Ray(
-      { x: 0, y: 0 },
-      { x: 1, y: 0 }
     );
     // Trajectory preview is now just a graphics object, already created above
   }
@@ -135,7 +124,6 @@ export class Player {
     }
     
     this.updateGroundedState();
-    this.updateWallDetection();
     this.updateFriction();
     this.updatePhysics(deltaTime);
     this.updateSprite();
@@ -161,51 +149,29 @@ export class Player {
     // Apply time-based acceleration towards target velocity
     const state = this.currentState;
     if (state !== PlayerState.Sliding) {
-      const accelerationTime = this.targetVelocityX === 0 
-        ? PLAYER_CONFIG.DECELERATION_TIME 
-        : PLAYER_CONFIG.ACCELERATION_TIME;
+      // Check if we're changing direction (momentum preservation)
+      const changingDirection = (this.currentVelocityX > 0 && this.targetVelocityX < 0) || 
+                               (this.currentVelocityX < 0 && this.targetVelocityX > 0);
       
-      const maxDelta = Math.abs(this.targetVelocityX - this.currentVelocityX) * (deltaTime / accelerationTime);
-      
-      // Smooth acceleration: gradually change velocity toward target over time
-      // If close to target (within maxDelta), snap to it. Otherwise, step toward it.
-      if (Math.abs(this.targetVelocityX - this.currentVelocityX) <= maxDelta) {
-        this.currentVelocityX = this.targetVelocityX;
+      let accelerationTime: number;
+      if (this.targetVelocityX === 0) {
+        accelerationTime = PLAYER_CONFIG.DECELERATION_TIME;
+      } else if (changingDirection) {
+        // Slower acceleration when changing direction (momentum)
+        accelerationTime = PLAYER_CONFIG.ACCELERATION_TIME * 1.5;
       } else {
-        this.currentVelocityX += Math.sign(this.targetVelocityX - this.currentVelocityX) * maxDelta;
+        accelerationTime = PLAYER_CONFIG.ACCELERATION_TIME;
       }
-    }
-    
-    // Override horizontal velocity if deeply embedded in wall
-    if (this.isTouchingWall && this.isGrounded) {
-      const position = this.rigidBody.translation();
       
-      // Only check for deep embedding when grounded
-      const leftCheck = this.world.castRay(
-        new this.RAPIER.Ray({ x: position.x, y: position.y }, { x: -1, y: 0 }),
-        PLAYER_CONFIG.WIDTH / 2,
-        true,
-        undefined,
-        undefined,
-        this.collider
-      );
+      // Use exponential interpolation for smoother feel
+      const t = Math.min(1, deltaTime / accelerationTime);
+      const smoothT = 1 - Math.pow(1 - t, 2);  // Ease-out curve
       
-      const rightCheck = this.world.castRay(
-        new this.RAPIER.Ray({ x: position.x, y: position.y }, { x: 1, y: 0 }),
-        PLAYER_CONFIG.WIDTH / 2,
-        true,
-        undefined,
-        undefined,
-        this.collider
-      );
+      this.currentVelocityX = this.currentVelocityX + (this.targetVelocityX - this.currentVelocityX) * smoothT;
       
-      // Only push out if significantly embedded
-      if (leftCheck && leftCheck.toi < PLAYER_CONFIG.WIDTH / 2 - PHYSICS.WALL_EMBED_THRESHOLD) {
-        // Deeply embedded in left wall - force push right
-        this.currentVelocityX = Math.max(this.currentVelocityX, PLAYER_CONFIG.WALL_SEPARATION_FORCE);
-      } else if (rightCheck && rightCheck.toi < PLAYER_CONFIG.WIDTH / 2 - PHYSICS.WALL_EMBED_THRESHOLD) {
-        // Deeply embedded in right wall - force push left
-        this.currentVelocityX = Math.min(this.currentVelocityX, -PLAYER_CONFIG.WALL_SEPARATION_FORCE);
+      // Snap to zero if very close (prevent drift)
+      if (Math.abs(this.currentVelocityX) < 5) {
+        this.currentVelocityX = 0;
       }
     }
     
@@ -250,124 +216,9 @@ export class Player {
     this.isGrounded = hit !== null && hit.toi <= PLAYER_CONFIG.GROUND_CHECK_DISTANCE;
   }
   
-  private updateWallDetection(): void {
-    const position = this.rigidBody.translation();
-    const currentVel = this.rigidBody.linvel();
-    const state = this.currentState;
-    const currentHeight = (state === PlayerState.Crouching || state === PlayerState.Sliding) 
-      ? PLAYER_CONFIG.CROUCH_HEIGHT 
-      : PLAYER_CONFIG.HEIGHT;
-    
-    // Multiple rays for better detection (top, middle, bottom of player)
-    const rayOffsets = [
-      -currentHeight / 2 + 2,  // Near top
-      0,                       // Center
-      currentHeight / 2 - 2    // Near bottom
-    ];
-    
-    let touchingLeft = false;
-    let touchingRight = false;
-    const wallCheckDistance = PLAYER_CONFIG.WIDTH / 2 + PHYSICS.WALL_CHECK_DISTANCE;
-    const wallThreshold = PLAYER_CONFIG.WIDTH / 2 + 0.5;
-    
-    // Check multiple points along player height
-    for (const yOffset of rayOffsets) {
-      // Left wall check
-      this.leftWallRaycast.origin = { 
-        x: position.x,
-        y: position.y + yOffset 
-      };
-      
-      const leftHit = this.world.castRay(
-        this.leftWallRaycast,
-        wallCheckDistance,
-        true,
-        undefined,
-        undefined,
-        this.collider
-      );
-      
-      if (leftHit && leftHit.toi <= wallThreshold) {
-        touchingLeft = true;
-      }
-      
-      // Right wall check
-      this.rightWallRaycast.origin = { 
-        x: position.x,
-        y: position.y + yOffset 
-      };
-      
-      const rightHit = this.world.castRay(
-        this.rightWallRaycast,
-        wallCheckDistance,
-        true,
-        undefined,
-        undefined,
-        this.collider
-      );
-      
-      if (rightHit && rightHit.toi <= wallThreshold) {
-        touchingRight = true;
-      }
-    }
-    
-    this.isTouchingWall = touchingLeft || touchingRight;
-    
-    // Enhanced wall repulsion system
-    if (this.isTouchingWall) {
-      const separationForce = PLAYER_CONFIG.WALL_SEPARATION_FORCE;
-      const slideReduction = PLAYER_CONFIG.WALL_SLIDE_DAMPING;
-      
-      // Only apply wall forces when grounded or moving very slowly vertically
-      // This prevents sticking when falling past platforms
-      const isEffectivelyGrounded = this.isGrounded || Math.abs(currentVel.y) < PHYSICS.AIRBORNE_VELOCITY_THRESHOLD;
-      
-      if (touchingLeft) {
-        if (currentVel.x < 0) {
-          if (isEffectivelyGrounded) {
-            // On ground - stop horizontal movement and push away
-            this.rigidBody.setLinvel({ x: separationForce, y: currentVel.y }, true);
-            this.currentVelocityX = 0;
-            this.targetVelocityX = 0;
-          } else {
-            // In air - just nullify horizontal velocity, let gravity work
-            this.rigidBody.setLinvel({ x: 0, y: currentVel.y }, true);
-            this.currentVelocityX = 0;
-            // Don't reset target velocity - allow player to keep trying to move
-          }
-        }
-      } else if (touchingRight) {
-        if (currentVel.x > 0) {
-          if (isEffectivelyGrounded) {
-            // On ground - stop horizontal movement and push away
-            this.rigidBody.setLinvel({ x: -separationForce, y: currentVel.y }, true);
-            this.currentVelocityX = 0;
-            this.targetVelocityX = 0;
-          } else {
-            // In air - just nullify horizontal velocity, let gravity work
-            this.rigidBody.setLinvel({ x: 0, y: currentVel.y }, true);
-            this.currentVelocityX = 0;
-            // Don't reset target velocity - allow player to keep trying to move
-          }
-        }
-      }
-      
-      // Only apply wall slide damping when actually sliding down a wall (not just touching)
-      if (!this.isGrounded && currentVel.y > 100 && Math.abs(currentVel.x) < PHYSICS.WALL_SLIDE_VELOCITY_THRESHOLD) {
-        this.rigidBody.setLinvel({ 
-          x: currentVel.x, 
-          y: currentVel.y * slideReduction 
-        }, true);
-      }
-    }
-  }
-  
   private updateFriction(): void {
-    // Set friction to 0 when airborne or touching walls to prevent sticking
-    // Set normal friction when grounded for proper movement control
-    const targetFriction = (this.isGrounded && !this.isTouchingWall) ? PLAYER_CONFIG.FRICTION : 0.0;
-    
-    // Update the collider's friction
+    // Simple friction: normal when grounded, zero when airborne
+    const targetFriction = this.isGrounded ? PLAYER_CONFIG.FRICTION : 0.0;
     this.collider.setFriction(targetFriction);
   }
   
@@ -440,18 +291,15 @@ export class Player {
       }
     }
     
-    // Apply slide deceleration
+    // Apply slide deceleration using time-based approach
     if (currentState === PlayerState.Sliding) {
-      if (this.currentVelocityX > 0) {
-        this.currentVelocityX = Math.max(
-          0,
-          this.currentVelocityX - PLAYER_CONFIG.SLIDE_DECELERATION * deltaTime
-        );
-      } else if (this.currentVelocityX < 0) {
-        this.currentVelocityX = Math.min(
-          0,
-          this.currentVelocityX + PLAYER_CONFIG.SLIDE_DECELERATION * deltaTime
-        );
+      // Exponential decay over time for natural feel
+      const decayRate = 1 - (deltaTime / PLAYER_CONFIG.SLIDE_DECELERATION_TIME);
+      this.currentVelocityX *= Math.max(0, decayRate);
+      
+      // Transition to crouch when nearly stopped
+      if (Math.abs(this.currentVelocityX) < 50) {
+        this.currentState = PlayerState.Crouching;
       }
     }
     
@@ -521,25 +369,21 @@ export class Player {
     
     const state = this.currentState;
     // Check if we should slide (moving at near-max speed)
-    if (state === PlayerState.Moving && Math.abs(this.currentVelocityX) >= PLAYER_CONFIG.MOVE_SPEED * 0.9) {
+    if (state === PlayerState.Moving && Math.abs(this.currentVelocityX) >= PLAYER_CONFIG.MOVE_SPEED * 0.95) {
       // Transition to sliding with speed boost
       this.currentState = PlayerState.Sliding;
       this.currentVelocityX = this.isFacingRight ? PLAYER_CONFIG.SLIDE_SPEED : -PLAYER_CONFIG.SLIDE_SPEED;
+      this.targetVelocityX = this.currentVelocityX;  // Prevent acceleration system from interfering
       this.updateColliderSize(PLAYER_CONFIG.WIDTH, PLAYER_CONFIG.CROUCH_HEIGHT);
     } else if (state === PlayerState.Idle || state === PlayerState.Moving) {
-      // Regular crouch - adjust target velocity to crouch speed
+      // Regular crouch - smoothly transition to crouch speed
       this.currentState = PlayerState.Crouching;
       if (Math.abs(this.targetVelocityX) > PLAYER_CONFIG.CROUCH_MOVE_SPEED) {
         this.targetVelocityX = this.targetVelocityX > 0 
           ? PLAYER_CONFIG.CROUCH_MOVE_SPEED 
           : -PLAYER_CONFIG.CROUCH_MOVE_SPEED;
       }
-      // Also clamp current velocity to prevent sliding while crouching
-      if (Math.abs(this.currentVelocityX) > PLAYER_CONFIG.CROUCH_MOVE_SPEED) {
-        this.currentVelocityX = this.currentVelocityX > 0 
-          ? PLAYER_CONFIG.CROUCH_MOVE_SPEED 
-          : -PLAYER_CONFIG.CROUCH_MOVE_SPEED;
-      }
+      // Don't instantly clamp velocity - let it decelerate naturally
       this.updateColliderSize(PLAYER_CONFIG.WIDTH, PLAYER_CONFIG.CROUCH_HEIGHT);
     }
     // If already crouching or sliding, do nothing

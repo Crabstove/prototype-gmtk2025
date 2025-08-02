@@ -159,18 +159,23 @@ export class Game {
       }
     }
     
-    // Physics always steps at fixed rate, game logic uses scaled time
-    this.world.step();
+    // Step physics with time scaling
+    // During time slow, we step physics less frequently
+    const physicsSteps = timeScale;
+    if (physicsSteps > 0.01) {  // Only step if time scale is meaningful
+      this.world.timestep = PHYSICS.FIXED_TIME_STEP * timeScale;
+      this.world.step();
+      this.world.timestep = PHYSICS.FIXED_TIME_STEP;  // Reset for next frame
+    }
     
-    // Update boomerang first so its position is current
-    // Boomerang should NOT be affected by time slow once thrown
+    // Update boomerang with normal deltaTime (not affected by time slow)
     if (this.boomerang && this.boomerang.getState() !== BoomerangState.Caught) {
       this.boomerang.update(deltaTime);
       this.checkBoomerangCollisions();
     }
     
-    // Then update player - this way if player is riding boomerang, it follows the current position
-    this.player.update(scaledDeltaTime);
+    // Update player with normal deltaTime (physics already handles time scale)
+    this.player.update(deltaTime);
     
     // Update camera to follow player (simple lerp)
     this.updateCamera();
