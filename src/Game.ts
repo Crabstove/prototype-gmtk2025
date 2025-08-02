@@ -7,6 +7,7 @@ import * as Input from './systems/input';
 import { TimeSlowEffect } from './systems/TimeSlowEffect';
 import { RapierWorld, PlayerState, BoomerangState, BoomerangThrowParams } from './types';
 import { GAME_CONFIG, PHYSICS, TIME_SLOW_CONFIG, PLAYER_CONFIG, CAMERA_CONFIG, DISMOUNT_CONFIG } from './constants/game.constants';
+import "pixi.js/math-extras"
 
 export class Game {
   private app!: PIXI.Application;
@@ -55,8 +56,10 @@ export class Game {
   private initializeSystems(): void {
     this.timeSlowEffect = new TimeSlowEffect(this.uiContainer);
     
-    // Set canvas for mouse input
-    Input.setCanvas(this.app.canvas as HTMLCanvasElement);
+    // Set canvas for mouse input after PIXI is initialized
+    setTimeout(() => {
+      Input.setCanvas(this.app.canvas);
+    }, 0);
   }
 
   private initializeEntities(): void {

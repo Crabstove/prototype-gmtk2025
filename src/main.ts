@@ -1,4 +1,5 @@
 import { Game } from './Game';
+import "./HanddrawnGraphics";
 
 async function initializeGame(): Promise<void> {
   try {

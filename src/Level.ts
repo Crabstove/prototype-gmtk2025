@@ -3,6 +3,8 @@ import type * as RAPIER from '@dimforge/rapier2d';
 import { RapierWorld } from './types';
 import { PlatformData, LEVEL_1_PLATFORMS } from './data/level.data';
 import { PLATFORM_COLORS, COLLISION_GROUPS } from './constants/game.constants';
+import { Stars } from './Stars';
+
 
 export class Level {
   private world: RapierWorld;
@@ -19,6 +21,10 @@ export class Level {
     this.container = container;
     this.RAPIER = RapierModule;
     this.createPlatforms(LEVEL_1_PLATFORMS);
+
+    let stars = new Stars(new PIXI.Graphics());
+    stars.draw();
+    this.container.addChild(stars.graphics);
   }
 
   private createPlatforms(platforms: PlatformData[]): void {
@@ -49,8 +55,15 @@ export class Level {
     this.world.createCollider(colliderDesc, rigidBody);
 
     const graphics = new PIXI.Graphics();
+    graphics.wiggle = 3;
+    graphics.maxSegmentLength = 20;
+    graphics.stripes = {
+      normal: new PIXI.Point(1.001, 1),
+      distance: 15,
+      shift: 10,
+    }
     graphics.rect(0, 0, platform.width, platform.height);
-    graphics.fill(platform.color || PLATFORM_COLORS.PLATFORM);
+    graphics.stroke(platform.color || PLATFORM_COLORS.PLATFORM);
     
     graphics.x = platform.x;
     graphics.y = platform.y;
