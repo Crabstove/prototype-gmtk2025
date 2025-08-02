@@ -8,28 +8,28 @@ export const GAME_CONFIG = {
 export const PHYSICS = {
   // Core physics
   GRAVITY: { x: 0.0, y: 400 },  // Platformer gravity (pixels/s²)
-  CUSTOM_GRAVITY: 750,  // Custom gravity for player physics (pixels/s²)
+  CUSTOM_GRAVITY: 800,  // Custom gravity for player physics (pixels/s²)
   FIXED_TIME_STEP: 1 / 60,
   MAX_FALL_SPEED: 600,  // Terminal velocity
   
   // Collision and detection
-  PLAYER_MOUNT_OFFSET: 20,  // Y offset when player rides boomerang
-  CATCH_DISTANCE: 30,  // Distance to catch boomerang
+  PLAYER_MOUNT_OFFSET: 35,  // Y offset when player rides boomerang
+  CATCH_DISTANCE: 20,  // Distance to catch boomerang
   CATCH_COOLDOWN: 0.2,  // Cooldown after catching before can aim again
   
   // Dismount mechanics
-  DISMOUNT_SPEED: 700,  // Launch speed when dismounting from boomerang
+  DISMOUNT_SPEED: 800,  // Launch speed when dismounting from boomerang
 } as const;
 
 export const PLAYER_CONFIG = {
   WIDTH: 32,
-  HEIGHT: 48,
-  CROUCH_HEIGHT: 18,
+  HEIGHT: 64,
+  CROUCH_HEIGHT: 24,
   COLOR: 0xec4899,
-  MOVE_SPEED: 170,
-  CROUCH_MOVE_SPEED: 90, 
-  SLIDE_SPEED: 300,  // 2x move speed - good boost with momentum
-  MAX_SLIDE_SPEED: 500,  // 2.9x move speed for slopes
+  MOVE_SPEED: 340,
+  CROUCH_MOVE_SPEED: 180, 
+  SLIDE_SPEED: 650,  // 2x move speed - good boost with momentum
+  MAX_SLIDE_SPEED: 1000,  // 2.9x move speed for slopes
   FRICTION: 0.7,
   RESTITUTION: 0,
   VELOCITY_THRESHOLD: 10,
@@ -38,13 +38,14 @@ export const PLAYER_CONFIG = {
 
 export const CAMERA_CONFIG = {
   LERP_FACTOR: 0.1,
+  SMOOTHING: 6, // Higher = smoother camera
 } as const;
 
 export const DISMOUNT_CONFIG = {
   MIN_BOOST_RATIO: 0.55,
   Y_SPEED_HANG_MULTIPLIER: 0.5,
-  X_SPEED_STRAIGHT_MULTIPLIER: 1.43,
-  HORIZONTAL_UPWARD_BOOST: -200,
+  X_SPEED_STRAIGHT_MULTIPLIER: 2,
+  HORIZONTAL_UPWARD_BOOST: -400,
   INERTIA_BLEND: 0.35,
   BOOMERANG_VELOCITY_FACTOR: 0.25,
 } as const;
@@ -56,7 +57,6 @@ export const PLATFORM_COLORS = {
 
 export const BOOMERANG_CONFIG = {
   THROW_SPEED: 500,  // Units per second
-  ACCELERATION_TIME: 0.1,  // Time to reach full speed
   HANG_TIME: 0.5,  // Time paused at trajectory peaks
   THROW_DISTANCE: 400,  // Max travel distance from origin
   MIN_ANGLE: 90,  // Minimum throw angle (degrees) - 90 is straight up

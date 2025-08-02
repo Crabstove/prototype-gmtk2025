@@ -72,10 +72,4 @@ export class Level {
     this.platformSprites.push(graphics);
   }
 
-  public destroy(): void {
-    this.platformSprites.forEach(sprite => {
-      sprite.destroy();
-    });
-    this.platformSprites = [];
-  }
 }

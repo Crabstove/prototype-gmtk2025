@@ -16,7 +16,6 @@ export class Player {
   private velocity: Vector2 = { x: 0, y: 0 };
   private slideInitiated = false; // Track if we just started sliding
   
-  private currentVelocityX = 0;
   private targetVelocityX = 0;
   private currentState: PlayerState = PlayerState.Idle;
   private hasBoomerang = true;
@@ -75,11 +74,7 @@ export class Player {
     )
       .setRestitution(PLAYER_CONFIG.RESTITUTION)
       .setFriction(PLAYER_CONFIG.FRICTION)
-      .setCollisionGroups(
-        // The format is: membership << 16 | filter
-        (COLLISION_GROUPS.PLAYER_STANDING << 16) | 
-        (COLLISION_GROUPS.ENVIRONMENT | COLLISION_GROUPS.BOOMERANG | COLLISION_GROUPS.ENEMY)
-      );
+      .setCollisionGroups(this.getCollisionGroups(false)); // Standing initially
     
     this.collider = this.world.createCollider(colliderDesc, this.rigidBody);
     
@@ -209,9 +204,6 @@ export class Player {
     
     // Apply velocity to Rapier (once per frame)
     this.rigidBody.setLinvel(this.velocity, true);
-    
-    // Update legacy velocity tracking (for compatibility)
-    this.currentVelocityX = this.velocity.x;
   }
 
   private updateSprite(): void {
@@ -298,12 +290,12 @@ export class Player {
         this.currentState = PlayerState.Airborne;
       }
     } else if (this.isGrounded && this.currentState === PlayerState.Airborne) {
-      this.currentState = Math.abs(this.currentVelocityX) > PLAYER_CONFIG.VELOCITY_THRESHOLD 
+      this.currentState = Math.abs(this.velocity.x) > PLAYER_CONFIG.VELOCITY_THRESHOLD 
         ? PlayerState.Moving 
         : PlayerState.Idle;
-    } else if (this.currentState === PlayerState.Idle && Math.abs(this.currentVelocityX) > PLAYER_CONFIG.VELOCITY_THRESHOLD) {
+    } else if (this.currentState === PlayerState.Idle && Math.abs(this.velocity.x) > PLAYER_CONFIG.VELOCITY_THRESHOLD) {
       this.currentState = PlayerState.Moving;
-    } else if (this.currentState === PlayerState.Moving && Math.abs(this.currentVelocityX) <= PLAYER_CONFIG.VELOCITY_THRESHOLD) {
+    } else if (this.currentState === PlayerState.Moving && Math.abs(this.velocity.x) <= PLAYER_CONFIG.VELOCITY_THRESHOLD) {
       this.currentState = PlayerState.Idle;
     }
   }
@@ -354,11 +346,9 @@ export class Player {
     
     // Sliding deceleration is now handled in updatePhysics()
     
-    // Keep sprite a consistent color (or you could use a sprite image here)
-    this.sprite.tint = PLAYER_CONFIG.COLOR;
   }
 
-  private move(direction: number, _deltaTime: number): void {
+  private move(direction: number): void {
     const state = this.currentState;
     
     // Exit blocking if trying to move
@@ -376,14 +366,14 @@ export class Player {
   }
 
   public moveLeft(deltaTime: number): void {
-    this.move(-1, deltaTime);
+    this.move(-1);
   }
 
   public moveRight(deltaTime: number): void {
-    this.move(1, deltaTime);
+    this.move(1);
   }
 
-  public stopMoving(_deltaTime: number): void {
+  public stopMoving(deltaTime: number): void {
     const state = this.currentState;
     if (state === PlayerState.Idle || state === PlayerState.Moving || 
         state === PlayerState.Crouching || state === PlayerState.Airborne) {
@@ -439,12 +429,14 @@ export class Player {
     }
   }
   
-  public stopBlocking(): void {
-    if (this.currentState === PlayerState.Blocking) {
-      this.currentState = this.getGroundedState();
-    }
+  private getCollisionGroups(isCrouching: boolean): number {
+    const membership = isCrouching ? COLLISION_GROUPS.PLAYER_CROUCHING : COLLISION_GROUPS.PLAYER_STANDING;
+    const filter = isCrouching
+      ? COLLISION_GROUPS.ENVIRONMENT | COLLISION_GROUPS.ENEMY  // No BOOMERANG when crouching
+      : COLLISION_GROUPS.ENVIRONMENT | COLLISION_GROUPS.BOOMERANG | COLLISION_GROUPS.ENEMY;
+    return (membership << 16) | filter;
   }
-  
+
   private updateColliderSize(width: number, height: number): void {
     // Check if we need to update collision groups even if size hasn't changed
     const currentState = this.currentState;
@@ -454,19 +446,13 @@ export class Player {
     // If height hasn't changed but collision groups need updating
     if (height === this.currentColliderHeight) {
       // Just update collision groups without recreating collider
-      const membership = needsCrouchingGroups ? COLLISION_GROUPS.PLAYER_CROUCHING : COLLISION_GROUPS.PLAYER_STANDING;
-      const filter = needsCrouchingGroups 
-        ? COLLISION_GROUPS.ENVIRONMENT | COLLISION_GROUPS.ENEMY  // No BOOMERANG
-        : COLLISION_GROUPS.ENVIRONMENT | COLLISION_GROUPS.BOOMERANG | COLLISION_GROUPS.ENEMY;
-      this.collider.setCollisionGroups((membership << 16) | filter);
+      this.collider.setCollisionGroups(this.getCollisionGroups(needsCrouchingGroups));
       return;
     }
     
     // Store current position and velocity
     const position = this.rigidBody.translation();
     const velocity = this.rigidBody.linvel();
-    
-    // Note: isCrouching is already declared above
     
     // Remove old collider
     this.world.removeCollider(this.collider, false);
@@ -478,19 +464,12 @@ export class Player {
     )
       .setRestitution(PLAYER_CONFIG.RESTITUTION)
       .setFriction(PLAYER_CONFIG.FRICTION)
-      .setCollisionGroups(
-        // The format is: membership << 16 | filter
-        ((isCrouching ? COLLISION_GROUPS.PLAYER_CROUCHING : COLLISION_GROUPS.PLAYER_STANDING) << 16) |
-        (isCrouching 
-          ? COLLISION_GROUPS.ENVIRONMENT | COLLISION_GROUPS.ENEMY  // No BOOMERANG
-          : COLLISION_GROUPS.ENVIRONMENT | COLLISION_GROUPS.BOOMERANG | COLLISION_GROUPS.ENEMY)
-      );
+      .setCollisionGroups(this.getCollisionGroups(isCrouching));
     
     this.collider = this.world.createCollider(colliderDesc, this.rigidBody);
     
     // Set collision events
     this.collider.setActiveEvents(this.RAPIER.ActiveEvents.COLLISION_EVENTS);
-    
     
     // Adjust rigid body position to keep feet at same position
     const heightChange = this.currentColliderHeight - height;
@@ -515,14 +494,14 @@ export class Player {
       width,
       height
     );
-    this.sprite.fill(PLAYER_CONFIG.COLOR);
+    this.sprite.stroke({color: PLAYER_CONFIG.COLOR, width: 3});
   }
 
   public getPosition(): Vector2 {
     const pos = this.rigidBody.translation();
     return { x: pos.x, y: pos.y };
   }
-
+  
   public getState(): PlayerState {
     return this.currentState;
   }
@@ -537,10 +516,6 @@ export class Player {
   
   public getHasBoomerang(): boolean {
     return this.hasBoomerang;
-  }
-  
-  public getIsGrounded(): boolean {
-    return this.isGrounded;
   }
   
   public getCollider(): RAPIER.Collider {
@@ -576,7 +551,6 @@ export class Player {
       
       // Stop all movement when aiming
       this.targetVelocityX = 0;
-      this.currentVelocityX = 0;
       const currentVel = this.rigidBody.linvel();
       this.rigidBody.setLinvel({ x: 0, y: currentVel.y }, true);
       
@@ -682,8 +656,6 @@ export class Player {
     
     // Stop all horizontal movement
     this.targetVelocityX = 0;
-    this.currentVelocityX = 0;
-    
   }
   
   public dismountBoomerang(launchVelocity?: Vector2): void {

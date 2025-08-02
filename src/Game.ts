@@ -19,6 +19,7 @@ export class Game {
   private uiContainer!: PIXI.Container;
   private timeSlowEffect!: TimeSlowEffect;
   private RAPIER!: typeof RAPIER;
+  private physicsAccumulator: number = 0;
 
   public async init(RapierModule: typeof RAPIER): Promise<void> {
     this.RAPIER = RapierModule;
@@ -93,8 +94,8 @@ export class Game {
     // Handle input
     this.handleInput(actions, isAiming, scaledDeltaTime);
     
-    // Update physics
-    this.updatePhysics(timeScale);
+    // Update physics with fixed timestep accumulator
+    this.updatePhysics(deltaTime, timeScale);
     
     // Update entities
     this.updateEntities(deltaTime);
@@ -175,13 +176,22 @@ export class Game {
     }
   }
   
-  private updatePhysics(timeScale: number): void {
-    // Step physics with time scaling
-    const physicsSteps = timeScale;
-    if (physicsSteps > 0.01) {  // Only step if time scale is meaningful
-      this.world.timestep = PHYSICS.FIXED_TIME_STEP * timeScale;
+  private updatePhysics(deltaTime: number, timeScale: number): void {
+    // Fixed timestep with accumulator for consistent physics
+    // This ensures physics runs at the same speed regardless of framerate
+    const scaledDelta = deltaTime * timeScale;
+    this.physicsAccumulator += scaledDelta;
+    
+    // Cap accumulator to prevent spiral of death at very low framerates
+    const maxAccumulator = PHYSICS.FIXED_TIME_STEP * 4; // Max 4 physics steps per frame
+    if (this.physicsAccumulator > maxAccumulator) {
+      this.physicsAccumulator = maxAccumulator;
+    }
+    
+    // Step physics at fixed timestep
+    while (this.physicsAccumulator >= PHYSICS.FIXED_TIME_STEP) {
       this.world.step();
-      this.world.timestep = PHYSICS.FIXED_TIME_STEP;  // Reset for next frame
+      this.physicsAccumulator -= PHYSICS.FIXED_TIME_STEP;
     }
   }
   
@@ -201,21 +211,59 @@ export class Game {
     return this.app.canvas as HTMLCanvasElement;
   }
   
-  public getLevel(): Level {
-    return this.level;
-  }
-  
   private updateCamera(deltaTime: number): void {
-    // Simple camera lerp to follow player
+    // Camera follows player's actual center (midpoint)
     const playerPos = this.player.getPosition();
-    const targetX = -playerPos.x + GAME_CONFIG.WIDTH / 2;
-    const targetY = -playerPos.y + GAME_CONFIG.HEIGHT / 2;
+    const playerVelocity = this.player.getCurrentVelocity();
     
-    // Framerate-independent smooth lerp using exponential decay
-    // LERP_FACTOR of 0.1 at 60fps means ~90% reduction per second
-    const lerpSpeed = 1 - Math.pow(1 - CAMERA_CONFIG.LERP_FACTOR, deltaTime * 60);
-    this.cameraContainer.x += (targetX - this.cameraContainer.x) * lerpSpeed;
-    this.cameraContainer.y += (targetY - this.cameraContainer.y) * lerpSpeed;
+    // Target position for camera - centered on player
+    const cameraOffset = GAME_CONFIG.HEIGHT * 0.1;
+    const targetX = -playerPos.x + GAME_CONFIG.WIDTH / 2;
+    const targetY = -playerPos.y + GAME_CONFIG.HEIGHT / 2 + cameraOffset;
+    
+    // Direct camera positioning for X (no smoothing) to eliminate horizontal jitter
+    this.cameraContainer.x = targetX;
+    
+    // Calculate distance from player to current camera center for Y
+    const currentCameraY = -this.cameraContainer.y + GAME_CONFIG.HEIGHT / 2 - cameraOffset;
+    const distanceFromCenter = Math.abs(playerPos.y - currentCameraY);
+    
+    // Dynamic Y smoothing - faster when player is far from center
+    let ySmoothing = 4.0; // Base smoothing for normal movement
+    
+    // Speed up if player is getting far from center
+    if (distanceFromCenter > GAME_CONFIG.HEIGHT * 0.2) {
+      // Use faster catch-up when far away
+      ySmoothing = 8.0 + (distanceFromCenter / GAME_CONFIG.HEIGHT) * 4;
+    }
+    
+    // Also consider vertical velocity for even faster tracking during launches
+    if (Math.abs(playerVelocity.y) > 400) {
+      ySmoothing = Math.max(ySmoothing, 10.0);
+    }
+    
+    // Apply Y smoothing
+    const yLerp = 1 - Math.pow(0.5, deltaTime * ySmoothing);
+    this.cameraContainer.y = this.cameraContainer.y + (targetY - this.cameraContainer.y) * yLerp;
+    
+    // Simple dynamic zoom based on vertical speed only
+    const baseScale = 1.0;
+    const minScale = 0.9; // 10% zoom out at max
+    
+    // Only zoom out when moving very fast vertically
+    let targetScale = baseScale;
+    if (Math.abs(playerVelocity.y) > 500) {
+      const zoomFactor = Math.min((Math.abs(playerVelocity.y) - 500) / 300, 1);
+      targetScale = baseScale - (baseScale - minScale) * zoomFactor;
+    }
+    
+    // Apply zoom with smoothing
+    const currentScale = this.cameraContainer.scale.x;
+    const scaleSmoothing = 3.0;
+    const scaleLerp = 1 - Math.pow(0.5, deltaTime * scaleSmoothing);
+    const newScale = currentScale + (targetScale - currentScale) * scaleLerp;
+    
+    this.cameraContainer.scale.set(newScale, newScale);
   }
   
   // Called by Player when throwing boomerang
