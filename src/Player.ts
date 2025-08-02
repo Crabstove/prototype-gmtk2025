@@ -12,6 +12,11 @@ export class Player {
   private container: PIXI.Container;
   private RAPIER: typeof RAPIER;
   
+  // Custom physics system (Celeste-style)
+  private velocity: Vector2 = { x: 0, y: 0 };
+  private slideInitiated = false; // Track if we just started sliding
+  
+  // Legacy velocity tracking (to be phased out)
   private currentVelocityX = 0;
   private targetVelocityX = 0;
   private currentState: PlayerState = PlayerState.Idle;
@@ -30,6 +35,7 @@ export class Player {
   private ridingBoomerang: IBoomerang | null = null;
   private frameCount: number = 0;
   private catchCooldown: number = 0;
+  
 
   constructor(
     world: RapierWorld,
@@ -61,6 +67,9 @@ export class Player {
       .lockRotations();
     
     this.rigidBody = this.world.createRigidBody(rigidBodyDesc);
+    
+    // Disable Rapier gravity - we'll use custom gravity
+    this.rigidBody.setGravityScale(0, false);
     
     const colliderDesc = this.RAPIER.ColliderDesc.cuboid(
       PLAYER_CONFIG.WIDTH / 2,
@@ -131,54 +140,76 @@ export class Player {
   }
 
   private updatePhysics(deltaTime: number): void {
-    const currentVel = this.rigidBody.linvel();
-    let velocityY = currentVel.y;
+    // === CUSTOM PHYSICS SYSTEM (Celeste-style) ===
     
-    // Apply gravity multiplier when falling
-    if (!this.isGrounded && velocityY > 0) {
-      // Apply additional gravity when falling
-      const additionalGravity = PHYSICS.GRAVITY.y * PHYSICS.FALL_GRAVITY_MULTIPLIER * deltaTime;
-      velocityY += additionalGravity;
+    // Apply gravity (always, unless grounded)
+    if (!this.isGrounded) {
+      this.velocity.y += PHYSICS.CUSTOM_GRAVITY * deltaTime;
+      
+      // Cap fall speed to terminal velocity
+      if (this.velocity.y > PHYSICS.MAX_FALL_SPEED) {
+        this.velocity.y = PHYSICS.MAX_FALL_SPEED;
+      }
+    } else {
+      // Reset Y velocity when grounded (prevents accumulation)
+      if (this.velocity.y > 0) {
+        this.velocity.y = 0;
+      }
     }
     
-    // Cap fall speed to terminal velocity
-    if (velocityY > PHYSICS.MAX_FALL_SPEED) {
-      velocityY = PHYSICS.MAX_FALL_SPEED;
-    }
-    
-    // Apply time-based acceleration towards target velocity
+    // Handle horizontal movement based on state
     const state = this.currentState;
-    if (state !== PlayerState.Sliding) {
-      // Check if we're changing direction (momentum preservation)
-      const changingDirection = (this.currentVelocityX > 0 && this.targetVelocityX < 0) || 
-                               (this.currentVelocityX < 0 && this.targetVelocityX > 0);
-      
-      let accelerationTime: number;
-      if (this.targetVelocityX === 0) {
-        accelerationTime = PLAYER_CONFIG.DECELERATION_TIME;
-      } else if (changingDirection) {
-        // Slower acceleration when changing direction (momentum)
-        accelerationTime = PLAYER_CONFIG.ACCELERATION_TIME * 1.5;
+    
+    if (state === PlayerState.Sliding) {
+      // Check if we went airborne while sliding (slid off edge)
+      if (!this.isGrounded) {
+        this.currentState = PlayerState.Airborne;
+        // Maintain slide momentum when going airborne
+        // Don't change velocity, just transition state
       } else {
-        accelerationTime = PLAYER_CONFIG.ACCELERATION_TIME;
+        // Don't override velocity if we just initiated the slide
+        if (!this.slideInitiated) {
+          // Very gentle deceleration to maintain momentum
+          const decayRate = Math.pow(0.97, deltaTime * 60); // Only 2% speed loss per frame
+          this.velocity.x *= decayRate;
+        }
+        this.slideInitiated = false; // Clear flag after first frame
+        
+        // Transition to crouch when much slower
+        if (Math.abs(this.velocity.x) < 80) { // Higher threshold since we decay slower
+          this.currentState = PlayerState.Crouching;
+          // Keep some momentum when transitioning to crouch
+          this.velocity.x = this.velocity.x > 0 ? PLAYER_CONFIG.CROUCH_MOVE_SPEED : -PLAYER_CONFIG.CROUCH_MOVE_SPEED;
+        }
       }
-      
-      // Use exponential interpolation for smoother feel
-      const t = Math.min(1, deltaTime / accelerationTime);
-      const smoothT = 1 - Math.pow(1 - t, 2);  // Ease-out curve
-      
-      this.currentVelocityX = this.currentVelocityX + (this.targetVelocityX - this.currentVelocityX) * smoothT;
-      
-      // Snap to zero if very close (prevent drift)
-      if (Math.abs(this.currentVelocityX) < 5) {
-        this.currentVelocityX = 0;
+    } else {
+      // Normal movement - direct velocity control
+      if (this.isGrounded) {
+        // Ground movement - instant velocity
+        this.velocity.x = this.targetVelocityX;
+      } else {
+        // Air control - improved for better responsiveness
+        const airControl = 0.65; // 65% control in air (increased from 30%)
+        const targetInfluence = this.targetVelocityX * airControl;
+        
+        // Apply air friction for high-speed movement (from launches)
+        if (Math.abs(this.velocity.x) > PLAYER_CONFIG.MOVE_SPEED * 2) {
+          // Strong air drag for launched states
+          const airDrag = Math.pow(0.92, deltaTime * 60); // 8% reduction per frame at 60fps
+          this.velocity.x *= airDrag;
+        } else {
+          // Improved air control with faster response
+          const airAcceleration = 15; // Increased from 10 for snappier control
+          this.velocity.x += (targetInfluence - this.velocity.x * airControl) * deltaTime * airAcceleration;
+        }
       }
     }
     
-    this.rigidBody.setLinvel({
-      x: this.currentVelocityX,
-      y: velocityY
-    }, true);
+    // Apply velocity to Rapier (once per frame)
+    this.rigidBody.setLinvel(this.velocity, true);
+    
+    // Update legacy velocity tracking (for compatibility)
+    this.currentVelocityX = this.velocity.x;
   }
 
   private updateSprite(): void {
@@ -192,28 +223,52 @@ export class Player {
     const state = this.currentState;
     const isCrouched = state === PlayerState.Crouching || state === PlayerState.Sliding;
     const currentHeight = isCrouched ? PLAYER_CONFIG.CROUCH_HEIGHT : PLAYER_CONFIG.HEIGHT;
+    const currentWidth = PLAYER_CONFIG.WIDTH;
     
-    // Cast ray downward from bottom center of player
-    this.groundRaycast.origin = { 
-      x: position.x, 
-      y: position.y + currentHeight / 2 - 1 // Start just inside the player
-    };
-    this.groundRaycast.dir = { x: 0, y: 1 };
+    // Cast multiple rays for better edge detection
+    const rayOffsets = [
+      0,                           // Center
+      -currentWidth * 0.4,         // Left
+      currentWidth * 0.4           // Right
+    ];
     
-    // Cast the ray slightly beyond the player's bottom
+    let groundedCount = 0;
     const maxToi = PLAYER_CONFIG.GROUND_CHECK_DISTANCE + 1;
-    const solid = true; // Stop at first hit
-    const hit = this.world.castRay(
-      this.groundRaycast, 
-      maxToi,
-      solid,
-      undefined,
-      undefined,
-      this.collider // Exclude self
-    );
+    const solid = true;
     
-    // Consider grounded if ray hits something very close to the player's bottom
-    this.isGrounded = hit !== null && hit.toi <= PLAYER_CONFIG.GROUND_CHECK_DISTANCE;
+    for (const xOffset of rayOffsets) {
+      this.groundRaycast.origin = { 
+        x: position.x + xOffset, 
+        y: position.y + currentHeight / 2 - 1 // Start just inside the player
+      };
+      this.groundRaycast.dir = { x: 0, y: 1 };
+      
+      const hit = this.world.castRay(
+        this.groundRaycast, 
+        maxToi,
+        solid,
+        undefined,
+        undefined,
+        this.collider // Exclude self
+      );
+      
+      if (hit !== null && hit.toi <= PLAYER_CONFIG.GROUND_CHECK_DISTANCE) {
+        groundedCount++;
+      }
+    }
+    
+    // Consider grounded if at least one ray hits ground
+    this.isGrounded = groundedCount > 0;
+    
+    // Edge recovery: if stuck (no velocity but not grounded), try to push slightly
+    if (!this.isGrounded && Math.abs(this.velocity.x) < 1 && Math.abs(this.velocity.y) < 1) {
+      // Check if we might be stuck on an edge
+      const vel = this.rigidBody.linvel();
+      if (Math.abs(vel.x) < 1 && Math.abs(vel.y) < 1) {
+        // Apply small nudge to unstick
+        this.velocity.y = 10; // Small downward push
+      }
+    }
   }
   
   private updateFriction(): void {
@@ -231,8 +286,15 @@ export class Player {
   
   private updateStateTransitions(velocityY: number, deltaTime: number): void {
     // Auto state transitions based on physics
-    if (!this.isGrounded && this.currentState !== PlayerState.Aiming) {
-      this.currentState = PlayerState.Airborne;
+    if (!this.isGrounded) {
+      // Force exit aiming if we become airborne
+      if (this.currentState === PlayerState.Aiming) {
+        this.stopAiming();
+      }
+      // Always transition to airborne when not grounded (except during special states)
+      if (this.currentState !== PlayerState.Blocking) {
+        this.currentState = PlayerState.Airborne;
+      }
     } else if (this.isGrounded && this.currentState === PlayerState.Airborne) {
       this.currentState = Math.abs(this.currentVelocityX) > PLAYER_CONFIG.VELOCITY_THRESHOLD 
         ? PlayerState.Moving 
@@ -291,17 +353,7 @@ export class Player {
       }
     }
     
-    // Apply slide deceleration using time-based approach
-    if (currentState === PlayerState.Sliding) {
-      // Exponential decay over time for natural feel
-      const decayRate = 1 - (deltaTime / PLAYER_CONFIG.SLIDE_DECELERATION_TIME);
-      this.currentVelocityX *= Math.max(0, decayRate);
-      
-      // Transition to crouch when nearly stopped
-      if (Math.abs(this.currentVelocityX) < 50) {
-        this.currentState = PlayerState.Crouching;
-      }
-    }
+    // Sliding deceleration is now handled in updatePhysics()
     
     // Keep sprite a consistent color (or you could use a sprite image here)
     this.sprite.tint = PLAYER_CONFIG.COLOR;
@@ -325,9 +377,9 @@ export class Player {
       this.isFacingRight = false;
       this.targetVelocityX = -PLAYER_CONFIG.CROUCH_MOVE_SPEED;
     } else if (state === PlayerState.Airborne) {
-      // Air time - limited control using crouch speed
+      // Air time - use full movement speed for better control
       this.isFacingRight = false;
-      this.targetVelocityX = -PLAYER_CONFIG.CROUCH_MOVE_SPEED;
+      this.targetVelocityX = -PLAYER_CONFIG.MOVE_SPEED;
     }
   }
 
@@ -349,9 +401,9 @@ export class Player {
       this.isFacingRight = true;
       this.targetVelocityX = PLAYER_CONFIG.CROUCH_MOVE_SPEED;
     } else if (state === PlayerState.Airborne) {
-      // Air time - limited control using crouch speed
+      // Air time - use full movement speed for better control
       this.isFacingRight = true;
-      this.targetVelocityX = PLAYER_CONFIG.CROUCH_MOVE_SPEED;
+      this.targetVelocityX = PLAYER_CONFIG.MOVE_SPEED;
     }
   }
 
@@ -368,22 +420,25 @@ export class Player {
     if (!this.isGrounded) return;
     
     const state = this.currentState;
-    // Check if we should slide (moving at near-max speed)
-    if (state === PlayerState.Moving && Math.abs(this.currentVelocityX) >= PLAYER_CONFIG.MOVE_SPEED * 0.95) {
+    // Check if we should slide (moving at or near max speed)
+    const speedRatio = Math.abs(this.velocity.x) / PLAYER_CONFIG.MOVE_SPEED;
+    const shouldSlide = speedRatio >= 0.85; // Slide if at 85% or more of max speed
+    
+    if (state === PlayerState.Moving && shouldSlide) {
       // Transition to sliding with speed boost
       this.currentState = PlayerState.Sliding;
-      this.currentVelocityX = this.isFacingRight ? PLAYER_CONFIG.SLIDE_SPEED : -PLAYER_CONFIG.SLIDE_SPEED;
-      this.targetVelocityX = this.currentVelocityX;  // Prevent acceleration system from interfering
+      this.velocity.x = this.velocity.x > 0 ? PLAYER_CONFIG.SLIDE_SPEED : -PLAYER_CONFIG.SLIDE_SPEED;
+      this.slideInitiated = true; // Mark that we just started sliding
       this.updateColliderSize(PLAYER_CONFIG.WIDTH, PLAYER_CONFIG.CROUCH_HEIGHT);
     } else if (state === PlayerState.Idle || state === PlayerState.Moving) {
-      // Regular crouch - smoothly transition to crouch speed
+      // Regular crouch
       this.currentState = PlayerState.Crouching;
-      if (Math.abs(this.targetVelocityX) > PLAYER_CONFIG.CROUCH_MOVE_SPEED) {
-        this.targetVelocityX = this.targetVelocityX > 0 
+      // Immediately adjust velocity if moving too fast
+      if (Math.abs(this.velocity.x) > PLAYER_CONFIG.CROUCH_MOVE_SPEED) {
+        this.velocity.x = this.velocity.x > 0 
           ? PLAYER_CONFIG.CROUCH_MOVE_SPEED 
           : -PLAYER_CONFIG.CROUCH_MOVE_SPEED;
       }
-      // Don't instantly clamp velocity - let it decelerate naturally
       this.updateColliderSize(PLAYER_CONFIG.WIDTH, PLAYER_CONFIG.CROUCH_HEIGHT);
     }
     // If already crouching or sliding, do nothing
@@ -672,18 +727,27 @@ export class Player {
       this.isAiming = false;
     }
     
-    // Apply launch velocity if provided
+    // Apply launch velocity to our custom physics system
     if (launchVelocity) {
-      this.currentVelocityX = launchVelocity.x;
-      this.targetVelocityX = launchVelocity.x;
-      const currentVel = this.rigidBody.linvel();
-      this.rigidBody.setLinvel({ x: launchVelocity.x, y: launchVelocity.y || currentVel.y }, true);
+      this.velocity.x = launchVelocity.x;
+      this.velocity.y = launchVelocity.y;
+      
+      // Reset target velocity so we don't fight the launch
+      this.targetVelocityX = 0;
+      
+      // Force airborne state
+      this.isGrounded = false;
+      this.currentState = PlayerState.Airborne;
     }
     
   }
   
   public getIsRiding(): boolean {
     return this.isRidingBoomerang;
+  }
+  
+  public getCurrentVelocity(): Vector2 {
+    return { x: this.velocity.x, y: this.velocity.y };
   }
 
 }

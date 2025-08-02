@@ -34,6 +34,9 @@ export class Boomerang implements IBoomerang {
   private throwDirection: number = 1;
   private isStraightLine: boolean = false;
   private gracePeriod: number = 0;
+  private maxArcHeight: number = 0; // Maximum height of the arc
+  private heightMultiplier: number = 0; // Height multiplier based on angle
+  private powerExponent: number = 2; // Power curve exponent
   
   constructor(
     world: RapierWorld,
@@ -74,6 +77,13 @@ export class Boomerang implements IBoomerang {
     this.throwAngle = params.angle;
     this.throwDirection = params.facingRight ? 1 : -1;
     this.isStraightLine = params.angle >= TRAJECTORY_CONFIG.STRAIGHT_LINE_THRESHOLD;
+    
+    // Calculate arc height based on angle
+    const angleRad = (params.angle * Math.PI) / 180;
+    const heightMultiplier = Math.sin(angleRad); // sin gives us 0 at 180° and 1 at 90°
+    this.maxArcHeight = BOOMERANG_CONFIG.THROW_DISTANCE * 0.6 * heightMultiplier;
+    this.heightMultiplier = heightMultiplier; // Store for curve calculation
+    this.powerExponent = 2 - 0.8 * heightMultiplier; // Power for curve shape
     
     // Reset state
     this.distanceTraveled = 0;
@@ -163,6 +173,14 @@ export class Boomerang implements IBoomerang {
     if (this.distanceTraveled <= 0) {
       // Reached origin - reverse direction and throw again!
       this.throwDirection = -this.throwDirection;  // Flip direction
+      
+      // Recalculate arc parameters for new direction
+      const angleRad = (this.throwAngle * Math.PI) / 180;
+      const heightMultiplier = Math.sin(angleRad);
+      this.maxArcHeight = BOOMERANG_CONFIG.THROW_DISTANCE * 0.6 * heightMultiplier;
+      this.heightMultiplier = heightMultiplier;
+      this.powerExponent = 2 - 0.8 * heightMultiplier;
+      
       this.distanceTraveled = 0;
       this.state = BoomerangState.Throwing;  // Start new throw in opposite direction
       
@@ -197,33 +215,35 @@ export class Boomerang implements IBoomerang {
   private updatePosition(): void {
     let x: number, y: number;
     
-    if (this.state === BoomerangState.Returning) {
-      // Return path - we're counting DOWN from THROW_DISTANCE to 0
-      // So when distanceTraveled = THROW_DISTANCE, we're at the far end
-      // When distanceTraveled = 0, we're back at origin
+    // Calculate normalized progress (0 to 1)
+    const progress = this.distanceTraveled / BOOMERANG_CONFIG.THROW_DISTANCE;
+    
+    if (this.isStraightLine) {
+      // Straight line for angles >= 168°
       x = this.throwOrigin.x + (this.distanceTraveled * this.throwDirection);
-      
-      if (!this.isStraightLine) {
-        // Use distanceTraveled directly for the return curve
-        const t = this.distanceTraveled / BOOMERANG_CONFIG.THROW_DISTANCE;
-        const heightMultiplier = (180 - this.throwAngle) / TRAJECTORY_CONFIG.ANGLE_RANGE;
-        const peakHeight = BOOMERANG_CONFIG.THROW_DISTANCE * TRAJECTORY_CONFIG.HEIGHT_MULTIPLIER * heightMultiplier;
-        y = this.throwOrigin.y - (peakHeight * t * t);
-      } else {
-        y = this.throwOrigin.y;
-      }
+      y = this.throwOrigin.y;
     } else {
-      // Throw path - counting UP from 0 to THROW_DISTANCE
-      x = this.throwOrigin.x + (this.distanceTraveled * this.throwDirection);
+      // Curved trajectory for angles < 168°
+      const t = progress;
       
-      if (!this.isStraightLine) {
-        const t = this.distanceTraveled / BOOMERANG_CONFIG.THROW_DISTANCE;
-        const heightMultiplier = (180 - this.throwAngle) / TRAJECTORY_CONFIG.ANGLE_RANGE;
-        const peakHeight = BOOMERANG_CONFIG.THROW_DISTANCE * TRAJECTORY_CONFIG.HEIGHT_MULTIPLIER * heightMultiplier;
-        y = this.throwOrigin.y - (peakHeight * t * t);
-      } else {
-        y = this.throwOrigin.y;
-      }
+      // Parametric blending between parabola and quarter circle
+      const blend = this.heightMultiplier; // sin(angle): 0 at 180°, 1 at 90°
+      
+      // Parabolic parametric: x = t, y = t²
+      const parabolaX = t;
+      const parabolaY = t * t;
+      
+      // Quarter circle parametric: x = sin(t*π/2), y = 1-cos(t*π/2)
+      const circleX = Math.sin(t * Math.PI / 2);
+      const circleY = 1 - Math.cos(t * Math.PI / 2);
+      
+      // Blend between the two
+      const blendedX = parabolaX * (1 - blend) + circleX * blend;
+      const blendedY = parabolaY * (1 - blend) + circleY * blend;
+      
+      // Scale and position
+      x = this.throwOrigin.x + (BOOMERANG_CONFIG.THROW_DISTANCE * blendedX * this.throwDirection);
+      y = this.throwOrigin.y - (this.maxArcHeight * blendedY);
     }
     
     this.rigidBody.setTranslation({ x, y }, true);
@@ -305,9 +325,82 @@ export class Boomerang implements IBoomerang {
     if (this.sprite) this.sprite.destroy();
   }
   
-  // Stubs for removed complexity
-  public getCurrentVelocity(): Vector2 { return { x: 0, y: 0 }; }
-  public getTargetVelocity(): Vector2 { return { x: 0, y: 0 }; }
+  public getCurrentState(): BoomerangState {
+    return this.state;
+  }
+  
+  public getFlightDirection(): Vector2 {
+    // Get normalized flight direction for dismount calculations
+    // Always return actual trajectory direction, even during hang
+    
+    const progress = this.distanceTraveled / BOOMERANG_CONFIG.THROW_DISTANCE;
+    const isReturning = this.state === BoomerangState.Returning;
+    
+    let dx: number, dy: number;
+    
+    if (this.isStraightLine) {
+      // Straight line - constant horizontal velocity
+      dx = this.throwDirection * (isReturning ? -1 : 1);
+      dy = 0;
+    } else {
+      // Calculate derivatives of the blended parametric curve
+      const t = progress;
+      const blend = this.heightMultiplier; // sin(angle): 0 at 180°, 1 at 90°
+      
+      // Parabola derivatives: dx/dt = 1, dy/dt = 2t
+      const parabolaDx = 1;
+      const parabolaDy = 2 * t;
+      
+      // Quarter circle derivatives: dx/dt = (π/2)cos(tπ/2), dy/dt = (π/2)sin(tπ/2)
+      const circleDx = (Math.PI / 2) * Math.cos(t * Math.PI / 2);
+      const circleDy = (Math.PI / 2) * Math.sin(t * Math.PI / 2);
+      
+      // Blend the derivatives
+      const blendedDx = parabolaDx * (1 - blend) + circleDx * blend;
+      const blendedDy = parabolaDy * (1 - blend) + circleDy * blend;
+      
+      // Apply scaling and direction
+      // For x: scale by THROW_DISTANCE and apply direction
+      dx = blendedDx * this.throwDirection;
+      // For y: scale by maxArcHeight (negative because we subtract in updatePosition)
+      dy = -blendedDy * (this.maxArcHeight / BOOMERANG_CONFIG.THROW_DISTANCE);
+      
+      // Reverse direction if returning
+      if (isReturning) {
+        dx = -dx;
+        dy = -dy;
+      }
+    }
+    
+    // For hang state, if velocity is near zero, use small upward bias
+    if (this.state === BoomerangState.Hanging && Math.abs(dx) < 0.1 && Math.abs(dy) < 0.1) {
+      dx = 0;
+      dy = -1;
+    }
+    
+    // Normalize to get unit direction vector
+    const magnitude = Math.sqrt(dx * dx + dy * dy);
+    if (magnitude < 0.001) {
+      // Fallback for zero velocity
+      return { x: 0, y: -1 };
+    }
+    
+    return {
+      x: dx / magnitude,
+      y: dy / magnitude
+    };
+  }
+  
+  public getCurrentVelocity(): Vector2 {
+    // Returns actual velocity (for compatibility)
+    const dir = this.getFlightDirection();
+    return {
+      x: dir.x * BOOMERANG_CONFIG.THROW_SPEED,
+      y: dir.y * BOOMERANG_CONFIG.THROW_SPEED
+    };
+  }
+  
+  public getTargetVelocity(): Vector2 { return { x: 0, y: 0 }; }  // Stub
   public getDistanceTraveled(): number { return this.distanceTraveled; }
   public getIsStraightLine(): boolean { return this.isStraightLine; }
   public setOnPlayerCollision(callback: () => void): void {}

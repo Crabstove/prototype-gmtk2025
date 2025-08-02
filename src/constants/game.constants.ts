@@ -7,9 +7,9 @@ export const GAME_CONFIG = {
 
 export const PHYSICS = {
   // Core physics
-  GRAVITY: { x: 0.0, y: 9.81 },  // Proper platformer gravity (pixels/s²)
+  GRAVITY: { x: 0.0, y: 400 },  // Platformer gravity (pixels/s²)
+  CUSTOM_GRAVITY: 750,  // Custom gravity for player physics (pixels/s²)
   FIXED_TIME_STEP: 1 / 60,
-  FALL_GRAVITY_MULTIPLIER: 50,  // Slight boost when falling for snappy feel
   MAX_FALL_SPEED: 600,  // Terminal velocity
   
   // Collision and detection
@@ -17,8 +17,9 @@ export const PHYSICS = {
   CATCH_DISTANCE: 30,  // Distance to catch boomerang
   VELOCITY_EPSILON: 0.001,  // Minimum velocity change to update
   CATCH_COOLDOWN: 0.2,  // Cooldown after catching before can aim again
-  STRAIGHT_LINE_DISMOUNT_BOOST: -200,  // Upward boost when dismounting from straight trajectory
-  STRAIGHT_LINE_Y_THRESHOLD: 10,  // Y velocity below this is considered straight line
+  
+  // Dismount mechanics
+  DISMOUNT_SPEED: 700,  // Launch speed when dismounting from boomerang
 } as const;
 
 export const PLAYER_CONFIG = {
@@ -28,12 +29,10 @@ export const PLAYER_CONFIG = {
   COLOR: 0xff6b6b,
   MOVE_SPEED: 170,
   CROUCH_MOVE_SPEED: 90, 
-  SLIDE_SPEED: 300,  // 1.5x move speed for noticeable boost
-  MAX_SLIDE_SPEED: 400,  // 2x move speed for slopes
+  SLIDE_SPEED: 300,  // 2x move speed - good boost with momentum
+  MAX_SLIDE_SPEED: 500,  // 2.9x move speed for slopes
   ACCELERATION_TIME: 0.2,  // Time in seconds to reach max speed
   DECELERATION_TIME: 0.15,  // Time in seconds to stop from max speed
-  SLIDE_DECELERATION_TIME: 0.45,  // Time for slide to decelerate to zero
-  SLIDE_TO_CROUCH_TIME: 0.5,  // Time at zero velocity before slide->crouch transition
   FRICTION: 0.7,
   RESTITUTION: 0,
   VELOCITY_THRESHOLD: 10,
@@ -51,15 +50,14 @@ export const PLATFORM_COLORS = {
 } as const;
 
 export const BOOMERANG_CONFIG = {
-  THROW_SPEED: 400,  // Units per second
+  THROW_SPEED: 500,  // Units per second
   ACCELERATION_TIME: 0.1,  // Time to reach full speed
   HANG_TIME: 0.5,  // Time paused at trajectory peaks
   THROW_DISTANCE: 400,  // Max travel distance from origin
-  MIN_ANGLE: 100,  // Minimum throw angle (degrees)
+  MIN_ANGLE: 90,  // Minimum throw angle (degrees) - 90 is straight up
   MAX_ANGLE: 180,  // Maximum throw angle (degrees) - 180 is horizontal
-  TRAJECTORY_PREVIEW_POINTS: 50,  // Number of points in preview line
   PREVIEW_COLOR: 0xffffff,  // White preview line
-  PREVIEW_ALPHA: 0.5,  // Preview line transparency
+  PREVIEW_ALPHA: 0,  // Preview line transparency
   PREVIEW_WIDTH: 2,  // Preview line width
   GRACE_PERIOD: 0.5,  // Half second where boomerang can't be caught
 } as const;
@@ -82,8 +80,7 @@ export const COLLISION_GROUPS = {
 } as const;
 
 export const PARRY_CONFIG = {
-  WINDOW_DURATION: 0.4,  // 0.4 seconds after block input
-  PEAK_INPUT_BUFFER: 0.2,  // 0.2 seconds grace period for peak catch
+  WINDOW_DURATION: 1, 
 } as const;
 
 export const TRAJECTORY_CONFIG = {

@@ -234,23 +234,60 @@ export class Game {
     // Check if player is riding the boomerang
     if (!this.player.getIsRiding() || !this.boomerang) return;
     
-    // Get boomerang's current velocity for momentum transfer
+    // Get the boomerang's flight direction and current velocity
+    const flightDir = this.boomerang.getFlightDirection();
     const boomerangVel = this.boomerang.getCurrentVelocity();
+    const boomerangState = this.boomerang.getCurrentState();
     
-    // Transfer the boomerang's momentum to the player
-    // For straight line trajectories, add upward boost
-    const launchVelocity: Vector2 = {
-      x: boomerangVel.x,
-      y: boomerangVel.y
-    };
+    // Apply boost that maintains more momentum in both X and Y
+    // Using separate max speeds for X and Y
+    // Same minimum ratio for both axes
+    const minBoostRatio = 0.55;  // 40% minimum for both X and Y
     
-    // If Y velocity is near zero (straight line), add upward boost
-    if (Math.abs(boomerangVel.y) < PHYSICS.STRAIGHT_LINE_Y_THRESHOLD) {
-      launchVelocity.y = PHYSICS.STRAIGHT_LINE_DISMOUNT_BOOST;
+    // Reduce Y boost during hang state (at trajectory peak)
+    const ySpeedMultiplier = (boomerangState === BoomerangState.Hanging) ? 0.5 : 1.0;
+    
+    // Boost horizontal launches (when flying in a straight line)
+    const isStraightLine = this.boomerang.getIsStraightLine();
+    const xSpeedMultiplier = isStraightLine ? 1.43 : 1.0; // 1.43 * 700 = ~1000
+    
+    // Calculate base velocities
+    let launchX = flightDir.x * PHYSICS.DISMOUNT_SPEED * xSpeedMultiplier;
+    let launchY = flightDir.y * PHYSICS.DISMOUNT_SPEED * ySpeedMultiplier;
+    
+    // Add upward boost for perfect horizontal throws
+    if (isStraightLine && Math.abs(flightDir.y) < 0.01) {
+      launchY = -200; // Upward boost for horizontal throws
     }
     
-    // Dismount with momentum and catch the boomerang
-    this.player.dismountBoomerang(launchVelocity);
+    // Ensure minimum boost in each direction (if there's any movement in that direction)
+    if (Math.abs(flightDir.x) > 0.01) {
+      const minX = PHYSICS.DISMOUNT_SPEED * minBoostRatio;
+      if (Math.abs(launchX) < minX) {
+        launchX = minX * Math.sign(flightDir.x);
+      }
+    }
+    
+    if (Math.abs(flightDir.y) > 0.01) {
+      const minY = PHYSICS.DISMOUNT_SPEED * minBoostRatio;
+      if (Math.abs(launchY) < minY) {
+        launchY = minY * Math.sign(flightDir.y);
+      }
+    }
+    
+    // Get player's current velocity while riding (matches boomerang speed)
+    const playerCurrentVel = this.player.getCurrentVelocity();
+    
+    // Blend with current velocity for smoother transition
+    // 35% current velocity for more smoothness, 65% launch boost for power
+    const inertiaBlend = 0.35; // 35% current velocity, 65% launch boost
+    const launchVelocity = { 
+      x: playerCurrentVel.x * inertiaBlend + launchX * (1 - inertiaBlend) + boomerangVel.x * 0.25,
+      y: playerCurrentVel.y * inertiaBlend + launchY * (1 - inertiaBlend) + boomerangVel.y * 0.25
+    };
+    
+    // Dismount with calculated velocity and catch the boomerang
+    this.player.dismountBoomerang(launchVelocity, false);
     this.boomerang.catch();
     this.player.setHasBoomerang(true);
   }

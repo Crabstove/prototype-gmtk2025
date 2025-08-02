@@ -51,6 +51,8 @@ export interface BoomerangThrowParams {
 export interface IBoomerang {
   getPosition(): { x: number; y: number } | null;
   getCurrentVelocity(): { x: number; y: number };
+  getCurrentState(): BoomerangState;
+  getFlightDirection(): { x: number; y: number };
   catch(): void;
 }
 
