@@ -1,7 +1,7 @@
 export const GAME_CONFIG = {
   WIDTH: 800,
   HEIGHT: 600,
-  BACKGROUND_COLOR: 0x87CEEB,
+  BACKGROUND_COLOR: 0x18181b,
   ANTIALIAS: true,
 } as const;
 
@@ -25,7 +25,7 @@ export const PLAYER_CONFIG = {
   WIDTH: 32,
   HEIGHT: 48,
   CROUCH_HEIGHT: 18,
-  COLOR: 0xff6b6b,
+  COLOR: 0xec4899,
   MOVE_SPEED: 170,
   CROUCH_MOVE_SPEED: 90, 
   SLIDE_SPEED: 300,  // 1.5x move speed for noticeable boost
@@ -46,8 +46,8 @@ export const CAMERA_CONFIG = {
 } as const;
 
 export const PLATFORM_COLORS = {
-  GROUND: 0x4a4a4a,
-  PLATFORM: 0x6a6a6a,
+  GROUND: 0xf4f4f5,
+  PLATFORM: 0xf4f4f5,
 } as const;
 
 export const BOOMERANG_CONFIG = {
@@ -58,7 +58,7 @@ export const BOOMERANG_CONFIG = {
   MIN_ANGLE: 100,  // Minimum throw angle (degrees)
   MAX_ANGLE: 180,  // Maximum throw angle (degrees) - 180 is horizontal
   TRAJECTORY_PREVIEW_POINTS: 50,  // Number of points in preview line
-  PREVIEW_COLOR: 0xffffff,  // White preview line
+  PREVIEW_COLOR: 0xef4444,  // White preview line
   PREVIEW_ALPHA: 0.5,  // Preview line transparency
   PREVIEW_WIDTH: 2,  // Preview line width
   GRACE_PERIOD: 0.5,  // Half second where boomerang can't be caught

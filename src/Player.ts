@@ -82,13 +82,15 @@ export class Player {
 
   private createSprite(): void {
     this.sprite = new PIXI.Graphics();
+    this.sprite.wiggle = 2;
+    this.sprite.maxSegmentLength = 10;
     this.sprite.rect(
       -PLAYER_CONFIG.WIDTH / 2,
       -PLAYER_CONFIG.HEIGHT / 2,
       PLAYER_CONFIG.WIDTH,
       PLAYER_CONFIG.HEIGHT
     );
-    this.sprite.fill(PLAYER_CONFIG.COLOR);
+    this.sprite.stroke({color: PLAYER_CONFIG.COLOR, width: 3});
     
     this.container.addChild(this.sprite);
   }

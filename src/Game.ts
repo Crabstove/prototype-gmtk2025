@@ -6,7 +6,8 @@ import { Boomerang } from './entities/Boomerang';
 import * as Input from './systems/input';
 import { TimeSlowEffect } from './systems/TimeSlowEffect';
 import { RapierWorld, PlayerState, BoomerangState, BoomerangThrowParams } from './types';
-import { GAME_CONFIG, PHYSICS, TIME_SLOW_CONFIG, PLAYER_CONFIG } from './constants/game.constants';
+import { GAME_CONFIG, PHYSICS, TIME_SLOW_CONFIG } from './constants/game.constants';
+import "pixi.js/math-extras"
 
 export class Game {
   private app!: PIXI.Application;
@@ -57,7 +58,7 @@ export class Game {
     
     // Set canvas for mouse input after PIXI is initialized
     setTimeout(() => {
-      Input.setCanvas(this.app.canvas as HTMLCanvasElement);
+      Input.setCanvas(this.app.canvas);
     }, 0);
   }
 
@@ -239,7 +240,7 @@ export class Game {
     
     // Transfer the boomerang's momentum to the player
     // For straight line trajectories, add upward boost
-    const launchVelocity: Vector2 = {
+    const launchVelocity: RAPIER.Vector2 = {
       x: boomerangVel.x,
       y: boomerangVel.y
     };
