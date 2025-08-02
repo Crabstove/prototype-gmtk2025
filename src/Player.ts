@@ -1,11 +1,8 @@
 import * as PIXI from 'pixi.js';
 import type * as RAPIER from '@dimforge/rapier2d';
 import { RapierWorld, RapierRigidBody, Vector2, PlayerState, PlayerStateContext, BoomerangThrowParams, IBoomerang } from './types';
-import { PLAYER_CONFIG, PHYSICS_CONFIG, BOOMERANG_CONFIG, COLLISION_GROUPS, PARRY_CONFIG, PHYSICS_VALUES, TRAJECTORY_CONFIG } from './constants';
-import { PlayerStateMachine } from './entities/player/PlayerStateMachine';
-import { moveTowards } from './utils/math.utils';
-import { TrajectoryPreview } from './systems';
-import { ProjectileManager } from './managers';
+import { PLAYER_CONFIG, PHYSICS, BOOMERANG_CONFIG, COLLISION_GROUPS, PARRY_CONFIG, TRAJECTORY_CONFIG } from './constants/game.constants';
+import { drawBoomerangTrajectory } from './drawTrajectory';
 
 export class Player {
   private world: RapierWorld;
@@ -17,7 +14,7 @@ export class Player {
   
   private currentVelocityX = 0;
   private targetVelocityX = 0;
-  private stateMachine: PlayerStateMachine;
+  private currentState: PlayerState = PlayerState.Idle;
   private hasBoomerang = true;
   private isGrounded = true;
   private isFacingRight = true;
@@ -25,12 +22,12 @@ export class Player {
   private leftWallRaycast: RAPIER.Ray;
   private rightWallRaycast: RAPIER.Ray;
   private previousState: PlayerState = PlayerState.Idle;
-  private trajectoryPreview: TrajectoryPreview;
+  private trajectoryGraphics: PIXI.Graphics;
   private aimAngle: number = 180; // Default aim angle - straight ahead (degrees)
   private isAiming: boolean = false;
   private isTouchingWall: boolean = false;
   private currentColliderHeight: number = PLAYER_CONFIG.HEIGHT;
-  private projectileManager: ProjectileManager | null = null;
+  private gameInstance: any = null;  // Reference to Game for spawning boomerang
   private parryWindowTime: number = 0;
   private isRidingBoomerang: boolean = false;
   private ridingBoomerang: IBoomerang | null = null;
@@ -50,7 +47,10 @@ export class Player {
     
     this.createRigidBody(x, y);
     this.createSprite();
-    this.stateMachine = new PlayerStateMachine();
+    this.currentState = PlayerState.Idle;
+    this.trajectoryGraphics = new PIXI.Graphics();
+    this.trajectoryGraphics.alpha = 0.5;
+    this.container.addChild(this.trajectoryGraphics);
     this.groundRaycast = new RapierModule.Ray(
       { x: 0, y: 0 },
       { x: 0, y: 1 }
@@ -63,7 +63,7 @@ export class Player {
       { x: 0, y: 0 },
       { x: 1, y: 0 }
     );
-    this.trajectoryPreview = new TrajectoryPreview(container);
+    // Trajectory preview is now just a graphics object, already created above
   }
 
   private createRigidBody(x: number, y: number): void {
@@ -117,7 +117,7 @@ export class Player {
         // Position player on top of boomerang
         this.rigidBody.setTranslation({ 
           x: boomerangPos.x, 
-          y: boomerangPos.y - PHYSICS_VALUES.PLAYER_MOUNT_OFFSET
+          y: boomerangPos.y - PHYSICS.PLAYER_MOUNT_OFFSET
         }, true);
         
         // Set velocity to zero to prevent physics conflicts
@@ -149,24 +149,31 @@ export class Player {
     // Apply gravity multiplier when falling
     if (!this.isGrounded && velocityY > 0) {
       // Apply additional gravity when falling
-      const additionalGravity = PHYSICS_CONFIG.GRAVITY.y * (PHYSICS_CONFIG.FALL_GRAVITY_MULTIPLIER - 1) * deltaTime;
+      const additionalGravity = PHYSICS.GRAVITY.y * PHYSICS.FALL_GRAVITY_MULTIPLIER * deltaTime;
       velocityY += additionalGravity;
     }
     
     // Cap fall speed to terminal velocity
-    if (velocityY > PHYSICS_CONFIG.MAX_FALL_SPEED) {
-      velocityY = PHYSICS_CONFIG.MAX_FALL_SPEED;
+    if (velocityY > PHYSICS.MAX_FALL_SPEED) {
+      velocityY = PHYSICS.MAX_FALL_SPEED;
     }
     
     // Apply time-based acceleration towards target velocity
-    const state = this.stateMachine.getCurrentState();
+    const state = this.currentState;
     if (state !== PlayerState.Sliding) {
       const accelerationTime = this.targetVelocityX === 0 
         ? PLAYER_CONFIG.DECELERATION_TIME 
         : PLAYER_CONFIG.ACCELERATION_TIME;
       
       const maxDelta = Math.abs(this.targetVelocityX - this.currentVelocityX) * (deltaTime / accelerationTime);
-      this.currentVelocityX = moveTowards(this.currentVelocityX, this.targetVelocityX, maxDelta);
+      
+      // Smooth acceleration: gradually change velocity toward target over time
+      // If close to target (within maxDelta), snap to it. Otherwise, step toward it.
+      if (Math.abs(this.targetVelocityX - this.currentVelocityX) <= maxDelta) {
+        this.currentVelocityX = this.targetVelocityX;
+      } else {
+        this.currentVelocityX += Math.sign(this.targetVelocityX - this.currentVelocityX) * maxDelta;
+      }
     }
     
     // Override horizontal velocity if deeply embedded in wall
@@ -193,10 +200,10 @@ export class Player {
       );
       
       // Only push out if significantly embedded
-      if (leftCheck && leftCheck.toi < PLAYER_CONFIG.WIDTH / 2 - PHYSICS_VALUES.WALL_EMBED_THRESHOLD) {
+      if (leftCheck && leftCheck.toi < PLAYER_CONFIG.WIDTH / 2 - PHYSICS.WALL_EMBED_THRESHOLD) {
         // Deeply embedded in left wall - force push right
         this.currentVelocityX = Math.max(this.currentVelocityX, PLAYER_CONFIG.WALL_SEPARATION_FORCE);
-      } else if (rightCheck && rightCheck.toi < PLAYER_CONFIG.WIDTH / 2 - PHYSICS_VALUES.WALL_EMBED_THRESHOLD) {
+      } else if (rightCheck && rightCheck.toi < PLAYER_CONFIG.WIDTH / 2 - PHYSICS.WALL_EMBED_THRESHOLD) {
         // Deeply embedded in right wall - force push left
         this.currentVelocityX = Math.min(this.currentVelocityX, -PLAYER_CONFIG.WALL_SEPARATION_FORCE);
       }
@@ -216,7 +223,7 @@ export class Player {
 
   private updateGroundedState(): void {
     const position = this.rigidBody.translation();
-    const state = this.stateMachine.getCurrentState();
+    const state = this.currentState;
     const isCrouched = state === PlayerState.Crouching || state === PlayerState.Sliding;
     const currentHeight = isCrouched ? PLAYER_CONFIG.CROUCH_HEIGHT : PLAYER_CONFIG.HEIGHT;
     
@@ -246,7 +253,7 @@ export class Player {
   private updateWallDetection(): void {
     const position = this.rigidBody.translation();
     const currentVel = this.rigidBody.linvel();
-    const state = this.stateMachine.getCurrentState();
+    const state = this.currentState;
     const currentHeight = (state === PlayerState.Crouching || state === PlayerState.Sliding) 
       ? PLAYER_CONFIG.CROUCH_HEIGHT 
       : PLAYER_CONFIG.HEIGHT;
@@ -260,7 +267,7 @@ export class Player {
     
     let touchingLeft = false;
     let touchingRight = false;
-    const wallCheckDistance = PLAYER_CONFIG.WIDTH / 2 + PHYSICS_VALUES.WALL_CHECK_DISTANCE;
+    const wallCheckDistance = PLAYER_CONFIG.WIDTH / 2 + PHYSICS.WALL_CHECK_DISTANCE;
     const wallThreshold = PLAYER_CONFIG.WIDTH / 2 + 0.5;
     
     // Check multiple points along player height
@@ -313,7 +320,7 @@ export class Player {
       
       // Only apply wall forces when grounded or moving very slowly vertically
       // This prevents sticking when falling past platforms
-      const isEffectivelyGrounded = this.isGrounded || Math.abs(currentVel.y) < PHYSICS_VALUES.AIRBORNE_VELOCITY_THRESHOLD;
+      const isEffectivelyGrounded = this.isGrounded || Math.abs(currentVel.y) < PHYSICS.AIRBORNE_VELOCITY_THRESHOLD;
       
       if (touchingLeft) {
         if (currentVel.x < 0) {
@@ -346,7 +353,7 @@ export class Player {
       }
       
       // Only apply wall slide damping when actually sliding down a wall (not just touching)
-      if (!this.isGrounded && currentVel.y > 100 && Math.abs(currentVel.x) < PHYSICS_VALUES.WALL_SLIDE_VELOCITY_THRESHOLD) {
+      if (!this.isGrounded && currentVel.y > 100 && Math.abs(currentVel.x) < PHYSICS.WALL_SLIDE_VELOCITY_THRESHOLD) {
         this.rigidBody.setLinvel({ 
           x: currentVel.x, 
           y: currentVel.y * slideReduction 
@@ -366,21 +373,28 @@ export class Player {
   
   private updateStateMachine(deltaTime: number): void {
     const velocity = this.rigidBody.linvel();
-    const context: PlayerStateContext = {
-      hasBoomerang: this.hasBoomerang,
-      isGrounded: this.isGrounded,
-      velocity: { x: this.currentVelocityX, y: velocity.y },
-      isFacingRight: this.isFacingRight,
-      timeSinceStateChange: this.stateMachine.getTimeInCurrentState()
-    };
-    
-    
-    this.stateMachine.update(deltaTime, context);
+    // Simple state updates based on conditions
+    this.updateStateTransitions(velocity.y, deltaTime);
     this.handleStateSpecificBehavior(deltaTime);
   }
   
+  private updateStateTransitions(velocityY: number, deltaTime: number): void {
+    // Auto state transitions based on physics
+    if (!this.isGrounded && this.currentState !== PlayerState.Aiming) {
+      this.currentState = PlayerState.Airborne;
+    } else if (this.isGrounded && this.currentState === PlayerState.Airborne) {
+      this.currentState = Math.abs(this.currentVelocityX) > PLAYER_CONFIG.VELOCITY_THRESHOLD 
+        ? PlayerState.Moving 
+        : PlayerState.Idle;
+    } else if (this.currentState === PlayerState.Idle && Math.abs(this.currentVelocityX) > PLAYER_CONFIG.VELOCITY_THRESHOLD) {
+      this.currentState = PlayerState.Moving;
+    } else if (this.currentState === PlayerState.Moving && Math.abs(this.currentVelocityX) <= PLAYER_CONFIG.VELOCITY_THRESHOLD) {
+      this.currentState = PlayerState.Idle;
+    }
+  }
+
   private handleStateSpecificBehavior(deltaTime: number): void {
-    const currentState = this.stateMachine.getCurrentState();
+    const currentState = this.currentState;
     const previousState = this.previousState;
     
     // Handle state entry logic
@@ -408,7 +422,8 @@ export class Player {
         // Ensure trajectory preview is hidden
         if (this.isAiming) {
           this.isAiming = false;
-          this.trajectoryPreview.hide();
+          this.trajectoryGraphics.clear();
+          this.trajectoryGraphics.visible = false;
         }
       }
       
@@ -421,61 +436,37 @@ export class Player {
         this.parryWindowTime -= deltaTime;
       } else {
         // Auto-exit blocking state after parry window expires
-        this.stateMachine.requestStopBlocking();
+        this.currentState = this.isGrounded ? PlayerState.Idle : PlayerState.Airborne;
       }
     }
     
-    // Update sprite color based on state for visual feedback
-    let color: number = PLAYER_CONFIG.COLOR;
-    switch (currentState) {
-      case PlayerState.Idle:
-        color = 0xff6b6b; // Red
-        break;
-      case PlayerState.Moving:
-        color = 0x00ff00; // Bright Green
-        break;
-      case PlayerState.Crouching:
-        color = 0x6b6bff; // Blue
-        break;
-      case PlayerState.Sliding:
-        color = 0x6bffff; // Cyan
-        // Apply slide deceleration
-        if (this.currentVelocityX > 0) {
-          this.currentVelocityX = Math.max(
-            0,
-            this.currentVelocityX - PLAYER_CONFIG.SLIDE_DECELERATION * deltaTime
-          );
-        } else if (this.currentVelocityX < 0) {
-          this.currentVelocityX = Math.min(
-            0,
-            this.currentVelocityX + PLAYER_CONFIG.SLIDE_DECELERATION * deltaTime
-          );
-        }
-        break;
-      case PlayerState.Blocking:
-        // Flash between yellow and white during parry window
-        color = this.parryWindowTime > 0 ? 0xffffff : 0xffff6b; // White during parry, yellow after
-        break;
-      case PlayerState.Airborne:
-        color = 0xff6bff; // Magenta
-        break;
-      case PlayerState.Aiming:
-        color = 0xffaa00; // Orange
-        break;
+    // Apply slide deceleration
+    if (currentState === PlayerState.Sliding) {
+      if (this.currentVelocityX > 0) {
+        this.currentVelocityX = Math.max(
+          0,
+          this.currentVelocityX - PLAYER_CONFIG.SLIDE_DECELERATION * deltaTime
+        );
+      } else if (this.currentVelocityX < 0) {
+        this.currentVelocityX = Math.min(
+          0,
+          this.currentVelocityX + PLAYER_CONFIG.SLIDE_DECELERATION * deltaTime
+        );
+      }
     }
     
-    // Update sprite color if changed
-    if (this.sprite.tint !== color) {
-      this.sprite.tint = color;
-    }
+    // Keep sprite a consistent color (or you could use a sprite image here)
+    this.sprite.tint = PLAYER_CONFIG.COLOR;
   }
 
   public moveLeft(_deltaTime: number): void {
-    const state = this.stateMachine.getCurrentState();
+    const state = this.currentState;
     
     // Exit blocking if trying to move
     if (state === PlayerState.Blocking) {
-      this.stateMachine.requestStopBlocking();
+      if (this.currentState === PlayerState.Blocking) {
+      this.currentState = this.isGrounded ? PlayerState.Idle : PlayerState.Airborne;
+    }
     }
     
     if (state === PlayerState.Idle || state === PlayerState.Moving) {
@@ -493,11 +484,13 @@ export class Player {
   }
 
   public moveRight(_deltaTime: number): void {
-    const state = this.stateMachine.getCurrentState();
+    const state = this.currentState;
     
     // Exit blocking if trying to move
     if (state === PlayerState.Blocking) {
-      this.stateMachine.requestStopBlocking();
+      if (this.currentState === PlayerState.Blocking) {
+      this.currentState = this.isGrounded ? PlayerState.Idle : PlayerState.Airborne;
+    }
     }
     
     if (state === PlayerState.Idle || state === PlayerState.Moving) {
@@ -515,7 +508,7 @@ export class Player {
   }
 
   public stopMoving(_deltaTime: number): void {
-    const state = this.stateMachine.getCurrentState();
+    const state = this.currentState;
     if (state === PlayerState.Idle || state === PlayerState.Moving || 
         state === PlayerState.Crouching || state === PlayerState.Airborne) {
       this.targetVelocityX = 0;
@@ -526,16 +519,16 @@ export class Player {
     // Cannot crouch or slide during air time
     if (!this.isGrounded) return;
     
-    const state = this.stateMachine.getCurrentState();
+    const state = this.currentState;
     // Check if we should slide (moving at near-max speed)
     if (state === PlayerState.Moving && Math.abs(this.currentVelocityX) >= PLAYER_CONFIG.MOVE_SPEED * 0.9) {
       // Transition to sliding with speed boost
-      this.stateMachine.requestSlide({ x: this.currentVelocityX });
+      this.currentState = PlayerState.Sliding;
       this.currentVelocityX = this.isFacingRight ? PLAYER_CONFIG.SLIDE_SPEED : -PLAYER_CONFIG.SLIDE_SPEED;
       this.updateColliderSize(PLAYER_CONFIG.WIDTH, PLAYER_CONFIG.CROUCH_HEIGHT);
     } else if (state === PlayerState.Idle || state === PlayerState.Moving) {
       // Regular crouch - adjust target velocity to crouch speed
-      this.stateMachine.requestCrouch();
+      this.currentState = PlayerState.Crouching;
       if (Math.abs(this.targetVelocityX) > PLAYER_CONFIG.CROUCH_MOVE_SPEED) {
         this.targetVelocityX = this.targetVelocityX > 0 
           ? PLAYER_CONFIG.CROUCH_MOVE_SPEED 
@@ -553,28 +546,33 @@ export class Player {
   }
   
   public stand(): void {
-    const state = this.stateMachine.getCurrentState();
+    const state = this.currentState;
     if (state === PlayerState.Crouching) {
-      this.stateMachine.requestStand();
+      this.currentState = this.isGrounded ? PlayerState.Idle : PlayerState.Airborne;
       this.updateColliderSize(PLAYER_CONFIG.WIDTH, PLAYER_CONFIG.HEIGHT);
     } else if (state === PlayerState.Sliding) {
       // Exit sliding state when crouch key is released
-      this.stateMachine.requestStopSliding();
+      this.currentState = PlayerState.Crouching;
       this.updateColliderSize(PLAYER_CONFIG.WIDTH, PLAYER_CONFIG.HEIGHT);
     }
   }
   
   public startBlocking(): void {
-    this.stateMachine.requestBlock(this.hasBoomerang);
+    if (!this.hasBoomerang) {
+      this.currentState = PlayerState.Blocking;
+      this.parryWindowTime = PARRY_CONFIG.WINDOW_DURATION;
+    }
   }
   
   public stopBlocking(): void {
-    this.stateMachine.requestStopBlocking();
+    if (this.currentState === PlayerState.Blocking) {
+      this.currentState = this.isGrounded ? PlayerState.Idle : PlayerState.Airborne;
+    }
   }
   
   private updateColliderSize(width: number, height: number): void {
     // Check if we need to update collision groups even if size hasn't changed
-    const currentState = this.stateMachine.getCurrentState();
+    const currentState = this.currentState;
     const needsCrouchingGroups = (currentState === PlayerState.Crouching || currentState === PlayerState.Sliding);
     const isCrouching = height <= PLAYER_CONFIG.CROUCH_HEIGHT;
     
@@ -651,14 +649,14 @@ export class Player {
   }
 
   public getState(): PlayerState {
-    return this.stateMachine.getCurrentState();
+    return this.currentState;
   }
   
   public setHasBoomerang(value: boolean): void {
     this.hasBoomerang = value;
     if (value) {
       // Set cooldown when catching boomerang to prevent immediate re-throw
-      this.catchCooldown = PHYSICS_VALUES.CATCH_COOLDOWN;
+      this.catchCooldown = PHYSICS.CATCH_COOLDOWN;
     }
   }
   
@@ -690,8 +688,8 @@ export class Player {
     // Don't allow aiming while airborne
     if (!this.isGrounded) return;
     
-    if (this.hasBoomerang && this.stateMachine.getCurrentState() !== PlayerState.Aiming) {
-      const currentState = this.stateMachine.getCurrentState();
+    if (this.hasBoomerang && this.currentState !== PlayerState.Aiming) {
+      const currentState = this.currentState;
       
       // If crouching or sliding, stand up first
       if (currentState === PlayerState.Crouching || currentState === PlayerState.Sliding) {
@@ -707,8 +705,9 @@ export class Player {
       const currentVel = this.rigidBody.linvel();
       this.rigidBody.setLinvel({ x: 0, y: currentVel.y }, true);
       
-      this.stateMachine.requestAiming();
-      this.trajectoryPreview.show();
+      this.currentState = PlayerState.Aiming;
+      this.isAiming = true;
+      this.trajectoryGraphics.visible = true;
       this.updateTrajectoryPreview();
     }
   }
@@ -716,7 +715,8 @@ export class Player {
   public stopAiming(): void {
     if (this.isAiming) {
       this.isAiming = false;
-      this.trajectoryPreview.hide();
+      this.trajectoryGraphics.clear();
+      this.trajectoryGraphics.visible = false;
       
       // Prepare throw parameters
       const position = this.getPosition();
@@ -729,14 +729,15 @@ export class Player {
         facingRight: this.isFacingRight
       };
       
-      // Throw boomerang through ProjectileManager
-      if (this.projectileManager && this.hasBoomerang) {
-        this.projectileManager.spawnBoomerang(this, throwParams);
+      // Throw boomerang through Game instance
+      if (this.gameInstance && this.hasBoomerang) {
+        this.gameInstance.spawnBoomerang(this, throwParams);
         // Mark that we no longer have the boomerang
         this.hasBoomerang = false;
       }
       
-      this.stateMachine.requestStopAiming();
+      this.currentState = this.isGrounded ? PlayerState.Idle : PlayerState.Airborne;
+      this.isAiming = false;
     }
   }
   
@@ -781,19 +782,15 @@ export class Player {
       x: position.x,
       y: position.y - PLAYER_CONFIG.HEIGHT * 0.20
     };
-    this.trajectoryPreview.updateTrajectory(
-      throwPosition,
-      this.aimAngle,
-      this.isFacingRight
-    );
+    drawBoomerangTrajectory(this.trajectoryGraphics, throwPosition, this.aimAngle, this.isFacingRight);
   }
   
-  public setProjectileManager(manager: ProjectileManager): void {
-    this.projectileManager = manager;
+  public setProjectileManager(gameInstance: any): void {
+    this.gameInstance = gameInstance;
   }
   
   public isInParryWindow(): boolean {
-    return this.stateMachine.getCurrentState() === PlayerState.Blocking && this.parryWindowTime > 0;
+    return this.currentState === PlayerState.Blocking && this.parryWindowTime > 0;
   }
   
   public mountBoomerang(boomerang: IBoomerang): void {
@@ -806,7 +803,9 @@ export class Player {
     this.isGrounded = false;
     
     // Stop blocking state
-    this.stateMachine.requestStopBlocking();
+    if (this.currentState === PlayerState.Blocking) {
+      this.currentState = this.isGrounded ? PlayerState.Idle : PlayerState.Airborne;
+    }
     
     // Stop all horizontal movement
     this.targetVelocityX = 0;
@@ -823,8 +822,10 @@ export class Player {
     // Ensure trajectory preview is hidden
     if (this.isAiming) {
       this.isAiming = false;
-      this.trajectoryPreview.hide();
-      this.stateMachine.requestStopAiming();
+      this.trajectoryGraphics.clear();
+      this.trajectoryGraphics.visible = false;
+      this.currentState = this.isGrounded ? PlayerState.Idle : PlayerState.Airborne;
+      this.isAiming = false;
     }
     
     // Apply launch velocity if provided
@@ -840,4 +841,5 @@ export class Player {
   public getIsRiding(): boolean {
     return this.isRidingBoomerang;
   }
+
 }

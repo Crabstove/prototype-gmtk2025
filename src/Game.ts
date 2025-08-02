@@ -2,21 +2,20 @@ import * as PIXI from 'pixi.js';
 import type * as RAPIER from '@dimforge/rapier2d';
 import { Player } from './Player';
 import { Level } from './Level';
-import { InputSystem, CameraSystem, TimeSlowEffect } from './systems';
-import { ProjectileManager } from './managers';
-import { RapierWorld, PlayerState, BoomerangState } from './types';
-import { GAME_CONFIG, PHYSICS_CONFIG, TIME_SLOW_CONFIG, PLAYER_CONFIG, PHYSICS_VALUES } from './constants';
+import { Boomerang } from './entities/Boomerang';
+import * as Input from './systems/input';
+import { TimeSlowEffect } from './systems/TimeSlowEffect';
+import { RapierWorld, PlayerState, BoomerangState, BoomerangThrowParams } from './types';
+import { GAME_CONFIG, PHYSICS, TIME_SLOW_CONFIG, PLAYER_CONFIG } from './constants/game.constants';
 
 export class Game {
   private app!: PIXI.Application;
   private world!: RapierWorld;
   private player!: Player;
   private level!: Level;
-  private projectileManager!: ProjectileManager;
+  private boomerang: Boomerang | null = null;  // Single boomerang instance
   private cameraContainer!: PIXI.Container;
   private uiContainer!: PIXI.Container;
-  private inputSystem!: InputSystem;
-  private cameraSystem!: CameraSystem;
   private timeSlowEffect!: TimeSlowEffect;
   private RAPIER!: typeof RAPIER;
 
@@ -50,27 +49,28 @@ export class Game {
   }
 
   private initializePhysics(): void {
-    this.world = new this.RAPIER.World(PHYSICS_CONFIG.GRAVITY);
+    this.world = new this.RAPIER.World(PHYSICS.GRAVITY);
   }
 
   private initializeSystems(): void {
-    this.inputSystem = new InputSystem();
-    this.cameraSystem = new CameraSystem(this.cameraContainer);
     this.timeSlowEffect = new TimeSlowEffect(this.uiContainer);
     
     // Set canvas for mouse input after PIXI is initialized
     setTimeout(() => {
-      this.inputSystem.setCanvas(this.app.canvas as HTMLCanvasElement);
+      Input.setCanvas(this.app.canvas as HTMLCanvasElement);
     }, 0);
   }
 
   private initializeEntities(): void {
     this.level = new Level(this.world, this.cameraContainer, this.RAPIER);
     this.player = new Player(this.world, this.cameraContainer, 100, 400, this.RAPIER);
-    this.projectileManager = new ProjectileManager(this.world, this.cameraContainer, this.RAPIER);
     
-    // Give player reference to projectile manager
-    this.player.setProjectileManager(this.projectileManager);
+    // Initialize boomerang (starts caught)
+    this.boomerang = new Boomerang(this.world, this.cameraContainer, this.RAPIER);
+    this.boomerang.setOwner(this.player);
+    
+    // Give player reference to this game instance for boomerang spawning
+    this.player.setProjectileManager(this);
   }
 
   private startGameLoop(): void {
@@ -81,7 +81,7 @@ export class Game {
   }
 
   private update(deltaTime: number): void {
-    const actions = this.inputSystem.getActions();
+    const actions = Input.getInputActions();
     
     // Check if player is aiming for time slow
     const isAiming = this.player.getState() === PlayerState.Aiming;
@@ -128,7 +128,7 @@ export class Game {
         if (this.player.getState() !== PlayerState.Aiming) {
           this.player.startAiming();
           // Capture initial mouse position for relative movement
-          this.inputSystem.setInitialAimMouseY();
+          Input.setInitialAimMouseY();
         }
         
         // While aiming, continuously update angle based on mouse
@@ -136,7 +136,7 @@ export class Game {
           this.timeSlowEffect.startTimeSlow();
           
           // Update aim angle based on mouse movement relative to initial position
-          const mouseDeltaY = this.inputSystem.getMouseYDeltaFromAimStart();
+          const mouseDeltaY = Input.getMouseYDeltaFromAimStart();
           this.player.updateAimAngleFromMouseDelta(mouseDeltaY);
         }
       } else {
@@ -162,18 +162,18 @@ export class Game {
     // Physics always steps at fixed rate, game logic uses scaled time
     this.world.step();
     
-    // Update projectiles first (including boomerang) so their positions are current
-    // Projectiles should NOT be affected by time slow once thrown
-    this.projectileManager.update(deltaTime);
+    // Update boomerang first so its position is current
+    // Boomerang should NOT be affected by time slow once thrown
+    if (this.boomerang && this.boomerang.getState() !== BoomerangState.Caught) {
+      this.boomerang.update(deltaTime);
+      this.checkBoomerangCollisions();
+    }
     
     // Then update player - this way if player is riding boomerang, it follows the current position
     this.player.update(scaledDeltaTime);
     
-    // Check for projectile collisions
-    this.projectileManager.checkCollisions(this.player.getCollider());
-    
-    this.cameraSystem.setTarget(this.player.getPosition());
-    this.cameraSystem.update(scaledDeltaTime);
+    // Update camera to follow player (simple lerp)
+    this.updateCamera();
   }
   
 
@@ -185,13 +185,52 @@ export class Game {
     return this.level;
   }
   
+  private updateCamera(): void {
+    // Simple camera lerp to follow player
+    const playerPos = this.player.getPosition();
+    const targetX = -playerPos.x + GAME_CONFIG.WIDTH / 2;
+    const targetY = -playerPos.y + GAME_CONFIG.HEIGHT / 2;
+    
+    // Smooth lerp (0.1 = 10% toward target each frame)
+    this.cameraContainer.x += (targetX - this.cameraContainer.x) * 0.1;
+    this.cameraContainer.y += (targetY - this.cameraContainer.y) * 0.1;
+  }
+  
+  // Called by Player when throwing boomerang
+  public spawnBoomerang(owner: Player, throwParams: BoomerangThrowParams): void {
+    if (this.boomerang) {
+      this.boomerang.throw(throwParams);
+    }
+  }
+  
+  private checkBoomerangCollisions(): void {
+    if (!this.boomerang) return;
+    
+    const boomerangCollider = this.boomerang.getCollider();
+    if (!boomerangCollider) return;
+    
+    const playerCollider = this.player.getCollider();
+    
+    // Check collision with player
+    const intersecting = this.world.intersectionPair(boomerangCollider, playerCollider);
+    if (intersecting) {
+      this.boomerang.handlePlayerCollision();
+    }
+    
+    // Check collision with walls/platforms
+    this.world.intersectionsWith(boomerangCollider, (otherCollider) => {
+      if (otherCollider === playerCollider) return true;
+      this.boomerang!.checkWallCollision();
+      return false;
+    });
+  }
+  
   private handleCatchWhileRiding(): void {
-    // Get the boomerang being ridden
-    const ridingBoomerang = this.player['ridingBoomerang'];
-    if (!ridingBoomerang) return;
+    // Check if player is riding the boomerang
+    if (!this.player.getIsRiding() || !this.boomerang) return;
     
     // Get boomerang's current velocity for momentum transfer
-    const boomerangVel = ridingBoomerang.getCurrentVelocity();
+    const boomerangVel = this.boomerang.getCurrentVelocity();
     
     // Transfer the boomerang's momentum to the player
     // For straight line trajectories, add upward boost
@@ -201,13 +240,13 @@ export class Game {
     };
     
     // If Y velocity is near zero (straight line), add upward boost
-    if (Math.abs(boomerangVel.y) < PHYSICS_VALUES.STRAIGHT_LINE_Y_THRESHOLD) {
-      launchVelocity.y = PHYSICS_VALUES.STRAIGHT_LINE_DISMOUNT_BOOST;
+    if (Math.abs(boomerangVel.y) < PHYSICS.STRAIGHT_LINE_Y_THRESHOLD) {
+      launchVelocity.y = PHYSICS.STRAIGHT_LINE_DISMOUNT_BOOST;
     }
     
     // Dismount with momentum and catch the boomerang
     this.player.dismountBoomerang(launchVelocity);
-    ridingBoomerang.catch();
+    this.boomerang.catch();
     this.player.setHasBoomerang(true);
   }
 }

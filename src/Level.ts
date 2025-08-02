@@ -2,7 +2,7 @@ import * as PIXI from 'pixi.js';
 import type * as RAPIER from '@dimforge/rapier2d';
 import { RapierWorld } from './types';
 import { PlatformData, LEVEL_1_PLATFORMS } from './data/level.data';
-import { PLATFORM_COLORS, COLLISION_GROUPS } from './constants';
+import { PLATFORM_COLORS, COLLISION_GROUPS } from './constants/game.constants';
 
 export class Level {
   private world: RapierWorld;

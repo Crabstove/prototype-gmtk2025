@@ -1,42 +1,39 @@
 import * as PIXI from 'pixi.js';
 import type * as RAPIER from '@dimforge/rapier2d';
 import { RapierWorld, RapierRigidBody, Vector2, BoomerangState, BoomerangThrowParams, PlayerState, IBoomerang } from '../types';
-import { BOOMERANG_CONFIG, COLLISION_GROUPS, TRAJECTORY_CONFIG, PHYSICS_VALUES } from '../constants';
+import { BOOMERANG_CONFIG, COLLISION_GROUPS, TRAJECTORY_CONFIG, PHYSICS } from '../constants/game.constants';
 import { Player } from '../Player';
 
+/**
+ * SIMPLIFIED BOOMERANG CLASS
+ * 
+ * Core mechanics:
+ * 1. Throw in an arc (parabolic or straight)
+ * 2. Pause at max distance
+ * 3. Return to player
+ * 4. Can be mounted/ridden by parrying
+ */
 export class Boomerang implements IBoomerang {
   private world: RapierWorld;
   private rigidBody!: RapierRigidBody;
   private collider!: RAPIER.Collider;
-  private sprite: PIXI.Graphics | null = null;
+  private sprite: PIXI.Graphics;
   private container: PIXI.Container;
   private RAPIER: typeof RAPIER;
   private owner: Player | null = null;
   
-  // State tracking
+  // State
   private state: BoomerangState = BoomerangState.Caught;
   private distanceTraveled: number = 0;
-  private hangTimeRemaining: number = 0;
-  private currentVelocity: Vector2 = { x: 0, y: 0 };
-  private targetVelocity: Vector2 = { x: 0, y: 0 };
-  private accelerationTime: number = 0;
-  private frameCount: number = 0;
-  private gracePeriodTime: number = 0;
-  
-  // Trajectory type (straight line vs parabolic)
-  private isStraightLine: boolean = false;
-  
-  // Throw parameters for exact trajectory following
-  private throwOrigin: Vector2 | null = null;
-  private throwAngle: number = 180;
-  private throwDirection: number = 1; // 1 for right, -1 for left
-  private isReturningToOrigin: boolean = false; // Track if we're on the return leg
-  
-  // Collision callback
-  private onPlayerCollision?: () => void;
-  
-  // Track if player is riding
+  private hangTime: number = 0;
   private hasRider: boolean = false;
+  
+  // Trajectory parameters
+  private throwOrigin: Vector2 = { x: 0, y: 0 };
+  private throwAngle: number = 180;
+  private throwDirection: number = 1;
+  private isStraightLine: boolean = false;
+  private gracePeriod: number = 0;
   
   constructor(
     world: RapierWorld,
@@ -47,47 +44,18 @@ export class Boomerang implements IBoomerang {
     this.container = container;
     this.RAPIER = RapierModule;
     
-    // Create sprite once and reuse it
-    this.createSprite();
-  }
-  
-  private createRigidBody(x: number, y: number): void {
-    // Clean up any existing physics bodies first
-    this.cleanupPhysics();
-    
-    // Create kinematic rigid body (we control its movement)
-    const rigidBodyDesc = this.RAPIER.RigidBodyDesc.kinematicPositionBased()
-      .setTranslation(x, y);
-    
-    this.rigidBody = this.world.createRigidBody(rigidBodyDesc);
-    
-    // Set initial position immediately
-    this.rigidBody.setTranslation({ x, y }, true);
-    
-    // Create sensor collider (doesn't physically interact, just detects collisions)
-    const colliderDesc = this.RAPIER.ColliderDesc.ball(5.5) // ~16/3, matches smaller sprite
-      .setSensor(true)
-      .setActiveEvents(this.RAPIER.ActiveEvents.COLLISION_EVENTS)
-      .setCollisionGroups(
-        // The format is: membership << 16 | filter
-        (COLLISION_GROUPS.BOOMERANG << 16) |
-        (COLLISION_GROUPS.PLAYER_STANDING | COLLISION_GROUPS.ENVIRONMENT)
-      );
-    
-    this.collider = this.world.createCollider(colliderDesc, this.rigidBody);
-    
-  }
-  
-  private createSprite(): void {
-    if (this.sprite) return; // Don't recreate if it already exists
-    
+    // Create sprite once
     this.sprite = new PIXI.Graphics();
-    
-    // Draw L-shaped boomerang (3x smaller than before)
-    const size = 11; // ~32/3
+    this.drawBoomerang();
+    this.sprite.visible = false;
+    this.container.addChild(this.sprite);
+  }
+  
+  private drawBoomerang(): void {
+    const size = 11;
     const thickness = 3;
     
-    // Draw the L shape
+    // L-shaped boomerang
     this.sprite.moveTo(-size/2, -size/2);
     this.sprite.lineTo(-size/2 + thickness, -size/2);
     this.sprite.lineTo(-size/2 + thickness, size/2 - thickness);
@@ -95,450 +63,252 @@ export class Boomerang implements IBoomerang {
     this.sprite.lineTo(size/2, size/2);
     this.sprite.lineTo(-size/2, size/2);
     this.sprite.closePath();
-    
     this.sprite.fill(0xff00ff); // Magenta
-    this.sprite.visible = false; // Hidden until thrown
-    this.container.addChild(this.sprite);
   }
+  
   public throw(params: BoomerangThrowParams): void {
-    if (this.state !== BoomerangState.Caught) {
-      return; // Can't throw if not caught
-    }
-    
-    // Create rigid body at throw position
-    this.createRigidBody(params.origin.x, params.origin.y);
+    if (this.state !== BoomerangState.Caught) return;
     
     // Store throw parameters
     this.throwOrigin = { ...params.origin };
     this.throwAngle = params.angle;
     this.throwDirection = params.facingRight ? 1 : -1;
-    
-    // Determine if straight line
     this.isStraightLine = params.angle >= TRAJECTORY_CONFIG.STRAIGHT_LINE_THRESHOLD;
     
-    // Set velocity for movement direction (mainly for rotation effect)
-    this.targetVelocity = {
-      x: BOOMERANG_CONFIG.THROW_SPEED * this.throwDirection,
-      y: 0
-    };
-    
-    // Start with zero velocity for acceleration
-    this.currentVelocity = { x: 0, y: 0 };
-    this.accelerationTime = 0;
-    
-    // Reset tracking
+    // Reset state
     this.distanceTraveled = 0;
-    this.hangTimeRemaining = 0;
-    this.frameCount = 0;
-    this.gracePeriodTime = BOOMERANG_CONFIG.GRACE_PERIOD;
-    this.isReturningToOrigin = false;
-    
-    // Update state
+    this.hangTime = 0;
+    this.gracePeriod = BOOMERANG_CONFIG.GRACE_PERIOD;
     this.state = BoomerangState.Throwing;
     
-    // Update sprite position and make it visible
-    if (this.sprite) {
-      this.sprite.x = params.origin.x;
-      this.sprite.y = params.origin.y;
-      this.sprite.visible = true;
-    }
+    // Create physics
+    this.createPhysics(params.origin.x, params.origin.y);
+    
+    // Show sprite
+    this.sprite.visible = true;
+    this.updateSpritePosition();
+  }
+  
+  private createPhysics(x: number, y: number): void {
+    this.cleanupPhysics();
+    
+    // Kinematic body (we control position)
+    const rigidBodyDesc = this.RAPIER.RigidBodyDesc.kinematicPositionBased()
+      .setTranslation(x, y);
+    this.rigidBody = this.world.createRigidBody(rigidBodyDesc);
+    
+    // Sensor collider
+    const colliderDesc = this.RAPIER.ColliderDesc.ball(5.5)
+      .setSensor(true)
+      .setActiveEvents(this.RAPIER.ActiveEvents.COLLISION_EVENTS)
+      .setCollisionGroups(
+        (COLLISION_GROUPS.BOOMERANG << 16) |
+        (COLLISION_GROUPS.PLAYER_STANDING | COLLISION_GROUPS.ENVIRONMENT)
+      );
+    this.collider = this.world.createCollider(colliderDesc, this.rigidBody);
   }
   
   public update(deltaTime: number): void {
-    if (this.state === BoomerangState.Caught) {
-      return;
-    }
-    
-    this.frameCount++;
-    
-    if (!this.rigidBody) {
-      return;
-    }
+    if (this.state === BoomerangState.Caught || !this.rigidBody) return;
     
     // Update grace period
-    if (this.gracePeriodTime > 0) {
-      this.gracePeriodTime -= deltaTime;
+    if (this.gracePeriod > 0) {
+      this.gracePeriod -= deltaTime;
     }
     
+    // Update based on state
     switch (this.state) {
       case BoomerangState.Throwing:
         this.updateThrowing(deltaTime);
         break;
-        
       case BoomerangState.Hanging:
         this.updateHanging(deltaTime);
         break;
-        
       case BoomerangState.Returning:
         this.updateReturning(deltaTime);
         break;
     }
     
-    
-    // Update sprite position - get fresh position after physics update
-    if (this.rigidBody && this.sprite && this.sprite.visible) {
-      const updatedPosition = this.rigidBody.translation();
-      this.sprite.x = updatedPosition.x;
-      this.sprite.y = updatedPosition.y;
-      
-      // Rotate sprite based on movement
-      if (Math.abs(this.currentVelocity.x) > 0.1 || Math.abs(this.currentVelocity.y) > 0.1) {
-        this.sprite.rotation += deltaTime * 10; // Spin effect
-      }
-    }
-    
+    this.updateSpritePosition();
   }
   
   private updateThrowing(deltaTime: number): void {
-    const position = this.rigidBody.translation();
-    // Track distance traveled (based on horizontal movement)
-    const deltaDistance = Math.abs(this.targetVelocity.x * deltaTime);
-    this.distanceTraveled += deltaDistance;
+    // Move along throw trajectory
+    this.distanceTraveled += BOOMERANG_CONFIG.THROW_SPEED * deltaTime;
     
-    // Calculate progress along trajectory (0 to 1)
-    const t = Math.min(1, this.distanceTraveled / BOOMERANG_CONFIG.THROW_DISTANCE);
-    
-    // Get throw origin
-    const throwOrigin = this.throwOrigin;
-    if (!throwOrigin) {
-      // Fallback to velocity-based movement
-      this.currentVelocity = { ...this.targetVelocity };
-      const newPosition = {
-        x: position.x + this.currentVelocity.x * deltaTime,
-        y: position.y + this.currentVelocity.y * deltaTime
-      };
-      this.rigidBody.setTranslation(newPosition, true);
-      
-      if (this.distanceTraveled >= BOOMERANG_CONFIG.THROW_DISTANCE) {
-        this.enterHangState();
-      }
-      return;
-    }
-    
-    // Calculate position along the exact preview trajectory
-    let newPosition: Vector2;
-    
-    if (this.isStraightLine) {
-      // Straight horizontal line
-      newPosition = {
-        x: throwOrigin.x + (this.distanceTraveled * this.throwDirection),
-        y: throwOrigin.y
-      };
-    } else {
-      // Parabolic trajectory - match TrajectoryPreview exactly
-      const angleDegrees = this.throwAngle || 180;
-      const heightMultiplier = (180 - angleDegrees) / TRAJECTORY_CONFIG.ANGLE_RANGE;
-      const peakHeight = BOOMERANG_CONFIG.THROW_DISTANCE * TRAJECTORY_CONFIG.HEIGHT_MULTIPLIER * heightMultiplier;
-      
-      // Horizontal position (linear)
-      newPosition = {
-        x: throwOrigin.x + (this.distanceTraveled * this.throwDirection),
-        // Vertical position - quadratic curve that starts at origin and curves up
-        y: throwOrigin.y - (peakHeight * t * t) // Subtract because up is negative
-      };
-    }
-    
-    this.rigidBody.setTranslation(newPosition, true);
-    
-    // Update velocity for visual rotation and physics
-    const deltaX = newPosition.x - position.x;
-    const deltaY = newPosition.y - position.y;
-    
-    if (Math.abs(deltaX) > PHYSICS_VALUES.VELOCITY_EPSILON || Math.abs(deltaY) > PHYSICS_VALUES.VELOCITY_EPSILON) {
-      this.currentVelocity = {
-        x: deltaX / deltaTime,
-        y: deltaY / deltaTime
-      };
-    }
-    
-    // Check if reached max distance
     if (this.distanceTraveled >= BOOMERANG_CONFIG.THROW_DISTANCE) {
-      this.enterHangState();
+      // Reached max distance
+      this.state = BoomerangState.Hanging;
+      this.hangTime = BOOMERANG_CONFIG.HANG_TIME;  // Always hang, even with rider
+      this.distanceTraveled = BOOMERANG_CONFIG.THROW_DISTANCE;
     }
+    
+    this.updatePosition();
   }
   
   private updateHanging(deltaTime: number): void {
-    // If player is riding, skip hang time and immediately transition
-    if (this.hasRider) {
-      // Reset for next phase
-      this.distanceTraveled = 0;
-      this.accelerationTime = 0;
-      
-      if (!this.isReturningToOrigin) {
-        // Just finished throwing phase, now return
-        this.state = BoomerangState.Returning;
-        this.isReturningToOrigin = true;
-      } else {
-        // Just finished returning phase, now throw again in opposite direction
-        this.state = BoomerangState.Throwing;
-        this.isReturningToOrigin = false;
-        
-        // Update the origin for the next U-shape
-        const currentPos = this.rigidBody.translation();
-        this.throwOrigin = { x: currentPos.x, y: currentPos.y };
-        
-        // Reverse direction for the next throw
-        this.throwDirection = -this.throwDirection;
-        this.targetVelocity.x = -this.targetVelocity.x;
-      }
-      return;
-    }
+    this.hangTime -= deltaTime;
     
-    // Normal hang behavior when no rider
-    this.hangTimeRemaining -= deltaTime;
-    
-    if (this.hangTimeRemaining <= 0) {
-      // Reset for next phase
-      this.distanceTraveled = 0;
-      this.accelerationTime = 0;
-      
-      if (!this.isReturningToOrigin) {
-        // Just finished throwing phase, now return
-        this.state = BoomerangState.Returning;
-        this.isReturningToOrigin = true;
-      } else {
-        // Just finished returning phase, now throw again in opposite direction
-        this.state = BoomerangState.Throwing;
-        this.isReturningToOrigin = false;
-        
-        // Update the origin for the next U-shape
-        const currentPos = this.rigidBody.translation();
-        this.throwOrigin = { x: currentPos.x, y: currentPos.y };
-        
-        // Reverse direction for the next throw
-        this.throwDirection = -this.throwDirection;
-        this.targetVelocity.x = -this.targetVelocity.x;
-      }
+    if (this.hangTime <= 0) {
+      // Start returning
+      this.state = BoomerangState.Returning;
+      this.distanceTraveled = BOOMERANG_CONFIG.THROW_DISTANCE;
     }
   }
   
   private updateReturning(deltaTime: number): void {
-    const position = this.rigidBody.translation();
-    // Continue moving back along the U-shaped path
-    // Track distance traveled on return journey
-    const deltaDistance = Math.abs(this.targetVelocity.x * deltaTime);
-    this.distanceTraveled += deltaDistance;
+    // Move back along return trajectory
+    this.distanceTraveled -= BOOMERANG_CONFIG.THROW_SPEED * deltaTime;
     
-    
-    
-    
-    
-    // Check if we should complete the return journey BEFORE calculating position
-    if (this.distanceTraveled >= BOOMERANG_CONFIG.THROW_DISTANCE) {
-      // Enter hang state at the return point
-      this.enterHangState();
+    if (this.distanceTraveled <= 0) {
+      // Reached origin - reverse direction and throw again!
+      this.throwDirection = -this.throwDirection;  // Flip direction
+      this.distanceTraveled = 0;
+      this.state = BoomerangState.Throwing;  // Start new throw in opposite direction
+      
+      // Update origin to current position for the new U-shape
+      const pos = this.rigidBody.translation();
+      this.throwOrigin = { x: pos.x, y: pos.y };
       return;
     }
     
-    // Calculate progress along return trajectory (0 to 1)
-    // distanceTraveled was reset to 0 when entering return state
-    const t = Math.min(1, this.distanceTraveled / BOOMERANG_CONFIG.THROW_DISTANCE);
+    this.updatePosition();
     
-    // Get throw origin and current direction
-    const throwOrigin = this.throwOrigin;
-    if (!throwOrigin) {
-      // Fallback
-      const newPosition = {
-        x: position.x + this.currentVelocity.x * deltaTime,
-        y: position.y + this.currentVelocity.y * deltaTime
-      };
-      this.rigidBody.setTranslation(newPosition, true);
+    // Don't check for catching if player is riding
+    if (this.hasRider) {
       return;
     }
-    
-    // Calculate position along the return trajectory (second half of U)
-    let newPosition: Vector2;
-    
-    if (this.isStraightLine) {
-      // Straight horizontal line back
-      // Moving back towards origin
-      const returnX = throwOrigin.x + BOOMERANG_CONFIG.THROW_DISTANCE * this.throwDirection - (this.distanceTraveled * this.throwDirection);
-      newPosition = {
-        x: returnX,
-        y: throwOrigin.y
-      };
-    } else {
-      // Parabolic return trajectory - mirror of throw trajectory
-      const angleDegrees = this.throwAngle || 180;
-      const heightMultiplier = (180 - angleDegrees) / TRAJECTORY_CONFIG.ANGLE_RANGE;
-      const peakHeight = BOOMERANG_CONFIG.THROW_DISTANCE * TRAJECTORY_CONFIG.HEIGHT_MULTIPLIER * heightMultiplier;
-      
-      // For return path: we're going from the far end back towards origin
-      const endX = throwOrigin.x + (BOOMERANG_CONFIG.THROW_DISTANCE * this.throwDirection);
-      const returnX = endX - (this.distanceTraveled * this.throwDirection);
-      
-      // Calculate Y based on the U-shape curve (same quadratic, but reversed)
-      const returnT = 1 - t; // Reverse the progress for return journey
-      const returnY = throwOrigin.y - (peakHeight * returnT * returnT); // Same curve shape
-      
-      newPosition = {
-        x: returnX,
-        y: returnY
-      };
-      
-      
-      
-      
-    }
-    
-    // Set the new position
-    this.rigidBody.setTranslation(newPosition, true);
-    
-    
-    
-    // Update velocity for visual rotation and physics
-    const deltaX = newPosition.x - position.x;
-    const deltaY = newPosition.y - position.y;
-    
-    if (Math.abs(deltaX) > PHYSICS_VALUES.VELOCITY_EPSILON || Math.abs(deltaY) > PHYSICS_VALUES.VELOCITY_EPSILON) {
-      this.currentVelocity = {
-        x: deltaX / deltaTime,
-        y: deltaY / deltaTime
-      };
-    }
-    
     
     // Check if close to owner for catching
-    if (this.owner) {
+    if (this.owner && this.gracePeriod <= 0) {
       const ownerPos = this.owner.getPosition();
-      const dx = ownerPos.x - newPosition.x;
-      const dy = ownerPos.y - newPosition.y;
-      const distance = Math.sqrt(dx * dx + dy * dy);
+      const myPos = this.rigidBody.translation();
+      const dist = Math.sqrt(
+        Math.pow(ownerPos.x - myPos.x, 2) + 
+        Math.pow(ownerPos.y - myPos.y, 2)
+      );
       
-      if (distance < PHYSICS_VALUES.CATCH_DISTANCE) {
+      if (dist < PHYSICS.CATCH_DISTANCE) {
         this.handlePlayerCollision();
-        return;
       }
     }
   }
   
-  private enterHangState(): void {
-    this.state = BoomerangState.Hanging;
-    this.hangTimeRemaining = BOOMERANG_CONFIG.HANG_TIME;
-    this.currentVelocity = { x: 0, y: 0 };
-  }
-  
-  public checkWallCollision(): void {
-    // Called by Game when boomerang hits a wall
-    if (this.state === BoomerangState.Throwing || this.state === BoomerangState.Returning) {
-      this.enterHangState();
-    }
-  }
-  
-  public catch(): void {
-    if (this.state !== BoomerangState.Caught) {
-      this.state = BoomerangState.Caught;
-      this.hasRider = false;
-      if (this.sprite) {
-        this.sprite.visible = false;
-      }
-      this.cleanupPhysics();
-    }
-  }
-  
-  private cleanupPhysics(): void {
-    try {
-      if (this.collider && this.world.getCollider(this.collider.handle)) {
-        this.world.removeCollider(this.collider, false);
-      }
-    } catch (e) {
-      // Collider already removed
-    }
-    this.collider = null!;
+  private updatePosition(): void {
+    let x: number, y: number;
     
-    try {
-      if (this.rigidBody && this.world.getRigidBody(this.rigidBody.handle)) {
-        this.world.removeRigidBody(this.rigidBody);
+    if (this.state === BoomerangState.Returning) {
+      // Return path - we're counting DOWN from THROW_DISTANCE to 0
+      // So when distanceTraveled = THROW_DISTANCE, we're at the far end
+      // When distanceTraveled = 0, we're back at origin
+      x = this.throwOrigin.x + (this.distanceTraveled * this.throwDirection);
+      
+      if (!this.isStraightLine) {
+        // Use distanceTraveled directly for the return curve
+        const t = this.distanceTraveled / BOOMERANG_CONFIG.THROW_DISTANCE;
+        const heightMultiplier = (180 - this.throwAngle) / TRAJECTORY_CONFIG.ANGLE_RANGE;
+        const peakHeight = BOOMERANG_CONFIG.THROW_DISTANCE * TRAJECTORY_CONFIG.HEIGHT_MULTIPLIER * heightMultiplier;
+        y = this.throwOrigin.y - (peakHeight * t * t);
+      } else {
+        y = this.throwOrigin.y;
       }
-    } catch (e) {
-      // Rigid body already removed  
+    } else {
+      // Throw path - counting UP from 0 to THROW_DISTANCE
+      x = this.throwOrigin.x + (this.distanceTraveled * this.throwDirection);
+      
+      if (!this.isStraightLine) {
+        const t = this.distanceTraveled / BOOMERANG_CONFIG.THROW_DISTANCE;
+        const heightMultiplier = (180 - this.throwAngle) / TRAJECTORY_CONFIG.ANGLE_RANGE;
+        const peakHeight = BOOMERANG_CONFIG.THROW_DISTANCE * TRAJECTORY_CONFIG.HEIGHT_MULTIPLIER * heightMultiplier;
+        y = this.throwOrigin.y - (peakHeight * t * t);
+      } else {
+        y = this.throwOrigin.y;
+      }
     }
-    this.rigidBody = null!;
+    
+    this.rigidBody.setTranslation({ x, y }, true);
   }
   
-  public getState(): BoomerangState {
-    return this.state;
-  }
-  
-  public getPosition(): Vector2 | null {
-    if (this.state === BoomerangState.Caught || !this.rigidBody) {
-      return null;
-    }
+  private updateSpritePosition(): void {
+    if (!this.sprite.visible || !this.rigidBody) return;
+    
     const pos = this.rigidBody.translation();
-    return { x: pos.x, y: pos.y };
-  }
-  
-  public getCollider(): RAPIER.Collider | null {
-    return this.state !== BoomerangState.Caught ? this.collider : null;
-  }
-  
-  public getCurrentVelocity(): Vector2 {
-    return { ...this.currentVelocity };
-  }
-  
-  public getTargetVelocity(): Vector2 {
-    return { ...this.targetVelocity };
-  }
-  
-  public getDistanceTraveled(): number {
-    return this.distanceTraveled;
-  }
-  
-  public getIsStraightLine(): boolean {
-    return this.isStraightLine;
-  }
-  
-  public setOnPlayerCollision(callback: () => void): void {
-    this.onPlayerCollision = callback;
+    this.sprite.x = pos.x;
+    this.sprite.y = pos.y;
+    this.sprite.rotation += 0.3; // Spin
   }
   
   public handlePlayerCollision(): void {
-    // Don't allow catching during grace period
-    if (this.gracePeriodTime > 0) {
+    if (!this.owner || this.gracePeriod > 0) return;
+    
+    // Don't process collision if player is already riding
+    if (this.hasRider) return;
+    
+    const ownerState = this.owner.getState();
+    
+    // Mount if parrying
+    if (ownerState === PlayerState.Blocking && this.owner.isInParryWindow()) {
+      this.owner.mountBoomerang(this);
+      this.hasRider = true;
       return;
     }
     
-    // Get the owner's current state
-    if (this.owner) {
-      const ownerState = this.owner.getState();
-      
-      // If player is riding, don't process collision
-      if (this.owner.getIsRiding()) {
-        return;
-      }
-      
-      if (ownerState === PlayerState.Crouching || ownerState === PlayerState.Sliding) {
-        return;
-      }
-      
-      // Check for parry
-      if (ownerState === PlayerState.Blocking && this.owner.isInParryWindow()) {
-        // Mount the player on the boomerang
-        this.owner.mountBoomerang(this);
-        this.hasRider = true;
-        
-        return; // Don't catch the boomerang
-      }
+    // Don't catch if crouching/sliding
+    if (ownerState === PlayerState.Crouching || ownerState === PlayerState.Sliding) {
+      return;
     }
     
-    if (this.onPlayerCollision) {
-      this.onPlayerCollision();
+    // Catch normally
+    this.owner.setHasBoomerang(true);
+    this.catch();
+  }
+  
+  public catch(): void {
+    this.state = BoomerangState.Caught;
+    this.hasRider = false;
+    this.sprite.visible = false;
+    this.cleanupPhysics();
+  }
+  
+  private cleanupPhysics(): void {
+    if (this.collider) {
+      try { this.world.removeCollider(this.collider, false); } catch (e) {}
+      this.collider = null!;
+    }
+    if (this.rigidBody) {
+      try { this.world.removeRigidBody(this.rigidBody); } catch (e) {}
+      this.rigidBody = null!;
     }
   }
   
-  public setOwner(player: Player): void {
-    this.owner = player;
+  public checkWallCollision(): void {
+    if (this.state === BoomerangState.Throwing) {
+      this.state = BoomerangState.Hanging;
+      this.hangTime = BOOMERANG_CONFIG.HANG_TIME;
+    }
   }
   
-  public getOwner(): Player | null {
-    return this.owner;
+  // Required interface methods
+  public getState(): BoomerangState { return this.state; }
+  public getPosition(): Vector2 | null {
+    if (!this.rigidBody || this.state === BoomerangState.Caught) return null;
+    const pos = this.rigidBody.translation();
+    return { x: pos.x, y: pos.y };
   }
-  
+  public getCollider(): RAPIER.Collider | null {
+    return this.state !== BoomerangState.Caught ? this.collider : null;
+  }
+  public setOwner(player: Player): void { this.owner = player; }
+  public getOwner(): Player | null { return this.owner; }
   public destroy(): void {
     this.cleanupPhysics();
-    if (this.sprite) {
-      this.sprite.destroy();
-    }
+    if (this.sprite) this.sprite.destroy();
   }
   
+  // Stubs for removed complexity
+  public getCurrentVelocity(): Vector2 { return { x: 0, y: 0 }; }
+  public getTargetVelocity(): Vector2 { return { x: 0, y: 0 }; }
+  public getDistanceTraveled(): number { return this.distanceTraveled; }
+  public getIsStraightLine(): boolean { return this.isStraightLine; }
+  public setOnPlayerCollision(callback: () => void): void {}
 }

@@ -5,11 +5,24 @@ export const GAME_CONFIG = {
   ANTIALIAS: true,
 } as const;
 
-export const PHYSICS_CONFIG = {
-  GRAVITY: { x: 0.0, y: 30 },  // Standard platformer gravity
+export const PHYSICS = {
+  // Core physics
+  GRAVITY: { x: 0.0, y: 9.81 },  // Standard platformer gravity
   FIXED_TIME_STEP: 1 / 60,
-  FALL_GRAVITY_MULTIPLIER: 3,  // Applied when falling for snappy feel
-  MAX_FALL_SPEED: 450,  // Terminal velocity
+  FALL_GRAVITY_MULTIPLIER: 40,  // Applied when falling for snappy feel
+  MAX_FALL_SPEED: 500,  // Terminal velocity
+  
+  // Collision and detection
+  PLAYER_MOUNT_OFFSET: 20,  // Y offset when player rides boomerang
+  CATCH_DISTANCE: 30,  // Distance to catch boomerang
+  WALL_CHECK_DISTANCE: 3,  // Extra distance for wall detection
+  WALL_EMBED_THRESHOLD: 2,  // Pixels before push force applied
+  VELOCITY_EPSILON: 0.001,  // Minimum velocity change to update
+  AIRBORNE_VELOCITY_THRESHOLD: 50,  // Y velocity threshold for wall slide
+  WALL_SLIDE_VELOCITY_THRESHOLD: 5,  // X velocity threshold for wall slide
+  CATCH_COOLDOWN: 0.2,  // Cooldown after catching before can aim again
+  STRAIGHT_LINE_DISMOUNT_BOOST: -200,  // Upward boost when dismounting from straight trajectory
+  STRAIGHT_LINE_Y_THRESHOLD: 10,  // Y velocity below this is considered straight line
 } as const;
 
 export const PLAYER_CONFIG = {
@@ -83,17 +96,4 @@ export const TRAJECTORY_CONFIG = {
   ANGLE_RANGE: 80,  // Degrees from 180 to 100 (min angle)
   HEIGHT_MULTIPLIER: 0.5,  // Peak height as ratio of throw distance
   STRAIGHT_LINE_THRESHOLD: 168,  // Angles >= this are straight lines
-} as const;
-
-export const PHYSICS_VALUES = {
-  PLAYER_MOUNT_OFFSET: 20,  // Y offset when player rides boomerang
-  CATCH_DISTANCE: 30,  // Distance to catch boomerang
-  WALL_CHECK_DISTANCE: 3,  // Extra distance for wall detection
-  WALL_EMBED_THRESHOLD: 2,  // Pixels before push force applied
-  VELOCITY_EPSILON: 0.001,  // Minimum velocity change to update
-  AIRBORNE_VELOCITY_THRESHOLD: 50,  // Y velocity threshold for wall slide
-  WALL_SLIDE_VELOCITY_THRESHOLD: 5,  // X velocity threshold for wall slide
-  CATCH_COOLDOWN: 0.2,  // Cooldown after catching before can aim again
-  STRAIGHT_LINE_DISMOUNT_BOOST: -200,  // Upward boost when dismounting from straight trajectory
-  STRAIGHT_LINE_Y_THRESHOLD: 10,  // Y velocity below this is considered straight line
 } as const;

@@ -1,5 +1,26 @@
 /.claude
 /CLAUDE.md
-/architecture.md
-/game-design-document.md
 /node_modules
+/dist
+
+# environment variables
+.env
+.env.local
+.env.*.local
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+
+# logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.log
+
+# test coverage
+/coverage
