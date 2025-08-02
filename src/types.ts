@@ -21,18 +21,6 @@ export enum PlayerState {
   Aiming = 'aiming',
 }
 
-export interface PlayerStateContext {
-  hasBoomerang: boolean;
-  isGrounded: boolean;
-  velocity: { x: number; y: number };
-  isFacingRight: boolean;
-  timeSinceStateChange: number;
-}
-
-export interface StateTransitionResult {
-  newState: PlayerState;
-  shouldTransition: boolean;
-}
 
 // ============= Boomerang Types =============
 export enum BoomerangState {
@@ -57,12 +45,6 @@ export interface IBoomerang {
 }
 
 // ============= Input Types =============
-export type InputKey = 'KeyA' | 'KeyD' | 'KeyS' | 'KeyF' | 'ArrowLeft' | 'ArrowRight' | 'ArrowDown' | 'ControlLeft' | 'ControlRight' | 'KeyC';
-
-export interface InputState {
-  [key: string]: boolean;
-}
-
 export interface InputActions {
   moveLeft: boolean;
   moveRight: boolean;

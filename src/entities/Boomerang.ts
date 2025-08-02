@@ -54,6 +54,14 @@ export class Boomerang implements IBoomerang {
     this.container.addChild(this.sprite);
   }
   
+  private calculateArcParameters(angle: number): void {
+    const angleRad = (angle * Math.PI) / 180;
+    const heightMultiplier = Math.sin(angleRad); // sin gives us 0 at 180° and 1 at 90°
+    this.maxArcHeight = BOOMERANG_CONFIG.THROW_DISTANCE * 0.6 * heightMultiplier;
+    this.heightMultiplier = heightMultiplier;
+    this.powerExponent = 2 - 0.8 * heightMultiplier;
+  }
+  
   private drawBoomerang(): void {
     const size = 11;
     const thickness = 3;
@@ -78,12 +86,8 @@ export class Boomerang implements IBoomerang {
     this.throwDirection = params.facingRight ? 1 : -1;
     this.isStraightLine = params.angle >= TRAJECTORY_CONFIG.STRAIGHT_LINE_THRESHOLD;
     
-    // Calculate arc height based on angle
-    const angleRad = (params.angle * Math.PI) / 180;
-    const heightMultiplier = Math.sin(angleRad); // sin gives us 0 at 180° and 1 at 90°
-    this.maxArcHeight = BOOMERANG_CONFIG.THROW_DISTANCE * 0.6 * heightMultiplier;
-    this.heightMultiplier = heightMultiplier; // Store for curve calculation
-    this.powerExponent = 2 - 0.8 * heightMultiplier; // Power for curve shape
+    // Calculate arc parameters
+    this.calculateArcParameters(params.angle);
     
     // Reset state
     this.distanceTraveled = 0;
@@ -175,11 +179,7 @@ export class Boomerang implements IBoomerang {
       this.throwDirection = -this.throwDirection;  // Flip direction
       
       // Recalculate arc parameters for new direction
-      const angleRad = (this.throwAngle * Math.PI) / 180;
-      const heightMultiplier = Math.sin(angleRad);
-      this.maxArcHeight = BOOMERANG_CONFIG.THROW_DISTANCE * 0.6 * heightMultiplier;
-      this.heightMultiplier = heightMultiplier;
-      this.powerExponent = 2 - 0.8 * heightMultiplier;
+      this.calculateArcParameters(this.throwAngle);
       
       this.distanceTraveled = 0;
       this.state = BoomerangState.Throwing;  // Start new throw in opposite direction
@@ -292,11 +292,11 @@ export class Boomerang implements IBoomerang {
   
   private cleanupPhysics(): void {
     if (this.collider) {
-      try { this.world.removeCollider(this.collider, false); } catch (e) {}
+      this.world.removeCollider(this.collider, false);
       this.collider = null!;
     }
     if (this.rigidBody) {
-      try { this.world.removeRigidBody(this.rigidBody); } catch (e) {}
+      this.world.removeRigidBody(this.rigidBody);
       this.rigidBody = null!;
     }
   }
@@ -400,8 +400,6 @@ export class Boomerang implements IBoomerang {
     };
   }
   
-  public getTargetVelocity(): Vector2 { return { x: 0, y: 0 }; }  // Stub
   public getDistanceTraveled(): number { return this.distanceTraveled; }
   public getIsStraightLine(): boolean { return this.isStraightLine; }
-  public setOnPlayerCollision(callback: () => void): void {}
 }

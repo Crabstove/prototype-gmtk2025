@@ -6,7 +6,7 @@ import { Boomerang } from './entities/Boomerang';
 import * as Input from './systems/input';
 import { TimeSlowEffect } from './systems/TimeSlowEffect';
 import { RapierWorld, PlayerState, BoomerangState, BoomerangThrowParams } from './types';
-import { GAME_CONFIG, PHYSICS, TIME_SLOW_CONFIG, PLAYER_CONFIG } from './constants/game.constants';
+import { GAME_CONFIG, PHYSICS, TIME_SLOW_CONFIG, PLAYER_CONFIG, CAMERA_CONFIG, DISMOUNT_CONFIG } from './constants/game.constants';
 
 export class Game {
   private app!: PIXI.Application;
@@ -55,10 +55,8 @@ export class Game {
   private initializeSystems(): void {
     this.timeSlowEffect = new TimeSlowEffect(this.uiContainer);
     
-    // Set canvas for mouse input after PIXI is initialized
-    setTimeout(() => {
-      Input.setCanvas(this.app.canvas as HTMLCanvasElement);
-    }, 0);
+    // Set canvas for mouse input
+    Input.setCanvas(this.app.canvas as HTMLCanvasElement);
   }
 
   private initializeEntities(): void {
@@ -82,60 +80,78 @@ export class Game {
 
   private update(deltaTime: number): void {
     const actions = Input.getInputActions();
-    
-    // Check if player is aiming for time slow
     const isAiming = this.player.getState() === PlayerState.Aiming;
     const timeScale = isAiming ? TIME_SLOW_CONFIG.TIME_SCALE : 1.0;
     const scaledDeltaTime = deltaTime * timeScale;
     
-    // Update time slow visual effects
+    // Update visual effects
     this.timeSlowEffect.update(deltaTime);
     
-    // Handle movement
+    // Handle input
+    this.handleInput(actions, isAiming, scaledDeltaTime);
+    
+    // Update physics
+    this.updatePhysics(timeScale);
+    
+    // Update entities
+    this.updateEntities(deltaTime);
+    
+    // Update camera
+    this.updateCamera();
+  }
+  
+  private handleInput(actions: any, isAiming: boolean, scaledDeltaTime: number): void {
     if (!isAiming) {
-      // Normal movement when not aiming
-      if (actions.moveLeft) {
-        this.player.moveLeft(scaledDeltaTime);
-      } else if (actions.moveRight) {
-        this.player.moveRight(scaledDeltaTime);
-      } else {
-        this.player.stopMoving(scaledDeltaTime);
-      }
-      
-      // Handle crouch/slide
-      if (actions.crouch) {
-        this.player.crouch();
-      } else {
-        this.player.stand();
-      }
+      this.handleMovement(actions, scaledDeltaTime);
     } else {
-      // During aiming, only allow direction changes (no movement)
-      if (actions.moveLeft) {
-        this.player.setFacingDirection(false);
-      } else if (actions.moveRight) {
-        this.player.setFacingDirection(true);
-      }
+      this.handleAimingInput(actions);
     }
     
-    // Handle action button (throw/block/catch)
+    this.handleActionButton(actions);
+  }
+  
+  private handleMovement(actions: any, scaledDeltaTime: number): void {
+    // Normal movement when not aiming
+    if (actions.moveLeft) {
+      this.player.moveLeft(scaledDeltaTime);
+    } else if (actions.moveRight) {
+      this.player.moveRight(scaledDeltaTime);
+    } else {
+      this.player.stopMoving(scaledDeltaTime);
+    }
+    
+    // Handle crouch/slide
+    if (actions.crouch) {
+      this.player.crouch();
+    } else {
+      this.player.stand();
+    }
+  }
+  
+  private handleAimingInput(actions: any): void {
+    // During aiming, only allow direction changes (no movement)
+    if (actions.moveLeft) {
+      this.player.setFacingDirection(false);
+    } else if (actions.moveRight) {
+      this.player.setFacingDirection(true);
+    }
+  }
+  
+  private handleActionButton(actions: any): void {
     if (actions.action) {
       // Check if riding first
       if (this.player.getIsRiding()) {
-        // Catch while riding immediately on press
         this.handleCatchWhileRiding();
       } else if (this.player.getHasBoomerang()) {
-        // Start aiming when action is pressed with boomerang (only if not already aiming)
+        // Start aiming when action is pressed with boomerang
         if (this.player.getState() !== PlayerState.Aiming) {
           this.player.startAiming();
-          // Capture initial mouse position for relative movement
           Input.setInitialAimMouseY();
         }
         
         // While aiming, continuously update angle based on mouse
         if (this.player.getState() === PlayerState.Aiming) {
           this.timeSlowEffect.startTimeSlow();
-          
-          // Update aim angle based on mouse movement relative to initial position
           const mouseDeltaY = Input.getMouseYDeltaFromAimStart();
           this.player.updateAimAngleFromMouseDelta(mouseDeltaY);
         }
@@ -146,11 +162,7 @@ export class Game {
     } else {
       // Handle action release
       if (this.player.getState() === PlayerState.Aiming) {
-        // Player will handle throwing through ProjectileManager
         this.player.stopAiming();
-      } else if (this.player.getState() === PlayerState.Blocking) {
-        // Don't stop blocking immediately - let it continue for the parry window
-        // It will auto-stop when the player moves or after some time
       }
       
       // Stop time slow effect
@@ -158,16 +170,19 @@ export class Game {
         this.timeSlowEffect.stopTimeSlow();
       }
     }
-    
+  }
+  
+  private updatePhysics(timeScale: number): void {
     // Step physics with time scaling
-    // During time slow, we step physics less frequently
     const physicsSteps = timeScale;
     if (physicsSteps > 0.01) {  // Only step if time scale is meaningful
       this.world.timestep = PHYSICS.FIXED_TIME_STEP * timeScale;
       this.world.step();
       this.world.timestep = PHYSICS.FIXED_TIME_STEP;  // Reset for next frame
     }
-    
+  }
+  
+  private updateEntities(deltaTime: number): void {
     // Update boomerang with normal deltaTime (not affected by time slow)
     if (this.boomerang && this.boomerang.getState() !== BoomerangState.Caught) {
       this.boomerang.update(deltaTime);
@@ -176,9 +191,6 @@ export class Game {
     
     // Update player with normal deltaTime (physics already handles time scale)
     this.player.update(deltaTime);
-    
-    // Update camera to follow player (simple lerp)
-    this.updateCamera();
   }
   
 
@@ -196,9 +208,9 @@ export class Game {
     const targetX = -playerPos.x + GAME_CONFIG.WIDTH / 2;
     const targetY = -playerPos.y + GAME_CONFIG.HEIGHT / 2;
     
-    // Smooth lerp (0.1 = 10% toward target each frame)
-    this.cameraContainer.x += (targetX - this.cameraContainer.x) * 0.1;
-    this.cameraContainer.y += (targetY - this.cameraContainer.y) * 0.1;
+    // Smooth lerp toward target each frame
+    this.cameraContainer.x += (targetX - this.cameraContainer.x) * CAMERA_CONFIG.LERP_FACTOR;
+    this.cameraContainer.y += (targetY - this.cameraContainer.y) * CAMERA_CONFIG.LERP_FACTOR;
   }
   
   // Called by Player when throwing boomerang
@@ -240,16 +252,15 @@ export class Game {
     const boomerangState = this.boomerang.getCurrentState();
     
     // Apply boost that maintains more momentum in both X and Y
-    // Using separate max speeds for X and Y
-    // Same minimum ratio for both axes
-    const minBoostRatio = 0.55;  // 40% minimum for both X and Y
+    const minBoostRatio = DISMOUNT_CONFIG.MIN_BOOST_RATIO;
     
     // Reduce Y boost during hang state (at trajectory peak)
-    const ySpeedMultiplier = (boomerangState === BoomerangState.Hanging) ? 0.5 : 1.0;
+    const ySpeedMultiplier = (boomerangState === BoomerangState.Hanging) ? 
+      DISMOUNT_CONFIG.Y_SPEED_HANG_MULTIPLIER : 1.0;
     
     // Boost horizontal launches (when flying in a straight line)
     const isStraightLine = this.boomerang.getIsStraightLine();
-    const xSpeedMultiplier = isStraightLine ? 1.43 : 1.0; // 1.43 * 700 = ~1000
+    const xSpeedMultiplier = isStraightLine ? DISMOUNT_CONFIG.X_SPEED_STRAIGHT_MULTIPLIER : 1.0;
     
     // Calculate base velocities
     let launchX = flightDir.x * PHYSICS.DISMOUNT_SPEED * xSpeedMultiplier;
@@ -257,7 +268,7 @@ export class Game {
     
     // Add upward boost for perfect horizontal throws
     if (isStraightLine && Math.abs(flightDir.y) < 0.01) {
-      launchY = -200; // Upward boost for horizontal throws
+      launchY = DISMOUNT_CONFIG.HORIZONTAL_UPWARD_BOOST;
     }
     
     // Ensure minimum boost in each direction (if there's any movement in that direction)
@@ -279,15 +290,14 @@ export class Game {
     const playerCurrentVel = this.player.getCurrentVelocity();
     
     // Blend with current velocity for smoother transition
-    // 35% current velocity for more smoothness, 65% launch boost for power
-    const inertiaBlend = 0.35; // 35% current velocity, 65% launch boost
+    const inertiaBlend = DISMOUNT_CONFIG.INERTIA_BLEND;
     const launchVelocity = { 
-      x: playerCurrentVel.x * inertiaBlend + launchX * (1 - inertiaBlend) + boomerangVel.x * 0.25,
-      y: playerCurrentVel.y * inertiaBlend + launchY * (1 - inertiaBlend) + boomerangVel.y * 0.25
+      x: playerCurrentVel.x * inertiaBlend + launchX * (1 - inertiaBlend) + boomerangVel.x * DISMOUNT_CONFIG.BOOMERANG_VELOCITY_FACTOR,
+      y: playerCurrentVel.y * inertiaBlend + launchY * (1 - inertiaBlend) + boomerangVel.y * DISMOUNT_CONFIG.BOOMERANG_VELOCITY_FACTOR
     };
     
     // Dismount with calculated velocity and catch the boomerang
-    this.player.dismountBoomerang(launchVelocity, false);
+    this.player.dismountBoomerang(launchVelocity);
     this.boomerang.catch();
     this.player.setHasBoomerang(true);
   }

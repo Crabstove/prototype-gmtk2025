@@ -15,7 +15,6 @@ export const PHYSICS = {
   // Collision and detection
   PLAYER_MOUNT_OFFSET: 20,  // Y offset when player rides boomerang
   CATCH_DISTANCE: 30,  // Distance to catch boomerang
-  VELOCITY_EPSILON: 0.001,  // Minimum velocity change to update
   CATCH_COOLDOWN: 0.2,  // Cooldown after catching before can aim again
   
   // Dismount mechanics
@@ -31,8 +30,6 @@ export const PLAYER_CONFIG = {
   CROUCH_MOVE_SPEED: 90, 
   SLIDE_SPEED: 300,  // 2x move speed - good boost with momentum
   MAX_SLIDE_SPEED: 500,  // 2.9x move speed for slopes
-  ACCELERATION_TIME: 0.2,  // Time in seconds to reach max speed
-  DECELERATION_TIME: 0.15,  // Time in seconds to stop from max speed
   FRICTION: 0.7,
   RESTITUTION: 0,
   VELOCITY_THRESHOLD: 10,
@@ -41,7 +38,15 @@ export const PLAYER_CONFIG = {
 
 export const CAMERA_CONFIG = {
   LERP_FACTOR: 0.1,
-  OFFSET_Y: 0,
+} as const;
+
+export const DISMOUNT_CONFIG = {
+  MIN_BOOST_RATIO: 0.55,
+  Y_SPEED_HANG_MULTIPLIER: 0.5,
+  X_SPEED_STRAIGHT_MULTIPLIER: 1.43,
+  HORIZONTAL_UPWARD_BOOST: -200,
+  INERTIA_BLEND: 0.35,
+  BOOMERANG_VELOCITY_FACTOR: 0.25,
 } as const;
 
 export const PLATFORM_COLORS = {
@@ -56,19 +61,14 @@ export const BOOMERANG_CONFIG = {
   THROW_DISTANCE: 400,  // Max travel distance from origin
   MIN_ANGLE: 90,  // Minimum throw angle (degrees) - 90 is straight up
   MAX_ANGLE: 180,  // Maximum throw angle (degrees) - 180 is horizontal
-  PREVIEW_COLOR: 0xffffff,  // White preview line
-  PREVIEW_ALPHA: 0,  // Preview line transparency
-  PREVIEW_WIDTH: 2,  // Preview line width
   GRACE_PERIOD: 0.5,  // Half second where boomerang can't be caught
 } as const;
 
 export const TIME_SLOW_CONFIG = {
   TIME_SCALE: 0.1,  // 90% slow (less extreme for testing)
-  TRANSITION_SPEED: 0.15,  // How fast to transition in/out
   OVERLAY_COLOR: 0x4444ff,  // Blue tint
   OVERLAY_ALPHA: 0.15,  // Subtle overlay
   VIGNETTE_ALPHA: 0.3,  // Edge darkening
-  PARTICLE_DENSITY: 20,  // Floating particles for atmosphere
 } as const;
 
 export const COLLISION_GROUPS = {

@@ -1,6 +1,6 @@
 import * as PIXI from 'pixi.js';
 import type * as RAPIER from '@dimforge/rapier2d';
-import { RapierWorld, RapierRigidBody, Vector2, PlayerState, PlayerStateContext, BoomerangThrowParams, IBoomerang } from './types';
+import { RapierWorld, RapierRigidBody, Vector2, PlayerState, BoomerangThrowParams, IBoomerang } from './types';
 import { PLAYER_CONFIG, PHYSICS, BOOMERANG_CONFIG, COLLISION_GROUPS, PARRY_CONFIG, TRAJECTORY_CONFIG } from './constants/game.constants';
 import { drawBoomerangTrajectory } from './drawTrajectory';
 
@@ -16,7 +16,6 @@ export class Player {
   private velocity: Vector2 = { x: 0, y: 0 };
   private slideInitiated = false; // Track if we just started sliding
   
-  // Legacy velocity tracking (to be phased out)
   private currentVelocityX = 0;
   private targetVelocityX = 0;
   private currentState: PlayerState = PlayerState.Idle;
@@ -33,7 +32,6 @@ export class Player {
   private parryWindowTime: number = 0;
   private isRidingBoomerang: boolean = false;
   private ridingBoomerang: IBoomerang | null = null;
-  private frameCount: number = 0;
   private catchCooldown: number = 0;
   
 
@@ -305,6 +303,10 @@ export class Player {
       this.currentState = PlayerState.Idle;
     }
   }
+  
+  private getGroundedState(): PlayerState {
+    return this.isGrounded ? PlayerState.Idle : PlayerState.Airborne;
+  }
 
   private handleStateSpecificBehavior(deltaTime: number): void {
     const currentState = this.currentState;
@@ -312,14 +314,7 @@ export class Player {
     
     // Handle state entry logic
     if (currentState !== previousState) {
-      // Entering airborne state from crouching/sliding - restore normal size
-      if (currentState === PlayerState.Airborne && 
-          (previousState === PlayerState.Sliding || previousState === PlayerState.Crouching)) {
-        this.updateColliderSize(PLAYER_CONFIG.WIDTH, PLAYER_CONFIG.HEIGHT);
-      }
-      
-      // Update collision groups based on state by calling updateColliderSize
-      // This ensures collision groups are always in sync with the current state
+      // Update collision groups based on state
       const targetHeight = (currentState === PlayerState.Crouching || currentState === PlayerState.Sliding) 
         ? PLAYER_CONFIG.CROUCH_HEIGHT 
         : PLAYER_CONFIG.HEIGHT;
@@ -349,7 +344,7 @@ export class Player {
         this.parryWindowTime -= deltaTime;
       } else {
         // Auto-exit blocking state after parry window expires
-        this.currentState = this.isGrounded ? PlayerState.Idle : PlayerState.Airborne;
+        this.currentState = this.getGroundedState();
       }
     }
     
@@ -359,52 +354,29 @@ export class Player {
     this.sprite.tint = PLAYER_CONFIG.COLOR;
   }
 
-  public moveLeft(_deltaTime: number): void {
+  private move(direction: number, _deltaTime: number): void {
     const state = this.currentState;
     
     // Exit blocking if trying to move
     if (state === PlayerState.Blocking) {
-      if (this.currentState === PlayerState.Blocking) {
-      this.currentState = this.isGrounded ? PlayerState.Idle : PlayerState.Airborne;
-    }
+      this.currentState = this.getGroundedState();
     }
     
-    if (state === PlayerState.Idle || state === PlayerState.Moving) {
-      this.isFacingRight = false;
-      this.targetVelocityX = -PLAYER_CONFIG.MOVE_SPEED;
+    this.isFacingRight = direction > 0;
+    
+    if (state === PlayerState.Idle || state === PlayerState.Moving || state === PlayerState.Airborne) {
+      this.targetVelocityX = direction * PLAYER_CONFIG.MOVE_SPEED;
     } else if (state === PlayerState.Crouching) {
-      // Allow movement while crouched at half speed
-      this.isFacingRight = false;
-      this.targetVelocityX = -PLAYER_CONFIG.CROUCH_MOVE_SPEED;
-    } else if (state === PlayerState.Airborne) {
-      // Air time - use full movement speed for better control
-      this.isFacingRight = false;
-      this.targetVelocityX = -PLAYER_CONFIG.MOVE_SPEED;
+      this.targetVelocityX = direction * PLAYER_CONFIG.CROUCH_MOVE_SPEED;
     }
   }
 
-  public moveRight(_deltaTime: number): void {
-    const state = this.currentState;
-    
-    // Exit blocking if trying to move
-    if (state === PlayerState.Blocking) {
-      if (this.currentState === PlayerState.Blocking) {
-      this.currentState = this.isGrounded ? PlayerState.Idle : PlayerState.Airborne;
-    }
-    }
-    
-    if (state === PlayerState.Idle || state === PlayerState.Moving) {
-      this.isFacingRight = true;
-      this.targetVelocityX = PLAYER_CONFIG.MOVE_SPEED;
-    } else if (state === PlayerState.Crouching) {
-      // Allow movement while crouched at half speed
-      this.isFacingRight = true;
-      this.targetVelocityX = PLAYER_CONFIG.CROUCH_MOVE_SPEED;
-    } else if (state === PlayerState.Airborne) {
-      // Air time - use full movement speed for better control
-      this.isFacingRight = true;
-      this.targetVelocityX = PLAYER_CONFIG.MOVE_SPEED;
-    }
+  public moveLeft(deltaTime: number): void {
+    this.move(-1, deltaTime);
+  }
+
+  public moveRight(deltaTime: number): void {
+    this.move(1, deltaTime);
   }
 
   public stopMoving(_deltaTime: number): void {
@@ -447,7 +419,7 @@ export class Player {
   public stand(): void {
     const state = this.currentState;
     if (state === PlayerState.Crouching) {
-      this.currentState = this.isGrounded ? PlayerState.Idle : PlayerState.Airborne;
+      this.currentState = this.getGroundedState();
       this.updateColliderSize(PLAYER_CONFIG.WIDTH, PLAYER_CONFIG.HEIGHT);
     } else if (state === PlayerState.Sliding) {
       // Exit sliding state when crouch key is released
@@ -465,7 +437,7 @@ export class Player {
   
   public stopBlocking(): void {
     if (this.currentState === PlayerState.Blocking) {
-      this.currentState = this.isGrounded ? PlayerState.Idle : PlayerState.Airborne;
+      this.currentState = this.getGroundedState();
     }
   }
   
@@ -605,7 +577,6 @@ export class Player {
       this.rigidBody.setLinvel({ x: 0, y: currentVel.y }, true);
       
       this.currentState = PlayerState.Aiming;
-      this.isAiming = true;
       this.trajectoryGraphics.visible = true;
       this.updateTrajectoryPreview();
     }
@@ -635,8 +606,7 @@ export class Player {
         this.hasBoomerang = false;
       }
       
-      this.currentState = this.isGrounded ? PlayerState.Idle : PlayerState.Airborne;
-      this.isAiming = false;
+      this.currentState = this.getGroundedState();
     }
   }
   
@@ -703,7 +673,7 @@ export class Player {
     
     // Stop blocking state
     if (this.currentState === PlayerState.Blocking) {
-      this.currentState = this.isGrounded ? PlayerState.Idle : PlayerState.Airborne;
+      this.currentState = this.getGroundedState();
     }
     
     // Stop all horizontal movement
@@ -723,8 +693,7 @@ export class Player {
       this.isAiming = false;
       this.trajectoryGraphics.clear();
       this.trajectoryGraphics.visible = false;
-      this.currentState = this.isGrounded ? PlayerState.Idle : PlayerState.Airborne;
-      this.isAiming = false;
+      this.currentState = this.getGroundedState();
     }
     
     // Apply launch velocity to our custom physics system
