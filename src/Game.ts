@@ -6,14 +6,13 @@ import { Boomerang } from './entities/Boomerang';
 import * as Input from './systems/input';
 import { TimeSlowEffect } from './systems/TimeSlowEffect';
 import { RapierWorld, PlayerState, BoomerangState, BoomerangThrowParams } from './types';
-import { GAME_CONFIG, PHYSICS, TIME_SLOW_CONFIG, PLAYER_CONFIG, CAMERA_CONFIG, DISMOUNT_CONFIG } from './constants/game.constants';
+import { GAME_CONFIG, PHYSICS, TIME_SLOW_CONFIG, DISMOUNT_CONFIG } from './constants/game.constants';
 import "pixi.js/math-extras"
 
 export class Game {
   private app!: PIXI.Application;
   private world!: RapierWorld;
   private player!: Player;
-  private level!: Level;
   private boomerang: Boomerang | null = null;  // Single boomerang instance
   private cameraContainer!: PIXI.Container;
   private uiContainer!: PIXI.Container;
@@ -64,7 +63,7 @@ export class Game {
   }
 
   private initializeEntities(): void {
-    this.level = new Level(this.world, this.cameraContainer, this.RAPIER);
+    new Level(this.world, this.cameraContainer, this.RAPIER);
     this.player = new Player(this.world, this.cameraContainer, 100, 400, this.RAPIER);
     
     // Initialize boomerang (starts caught)
@@ -132,7 +131,7 @@ export class Game {
     }
   }
   
-  private handleAimingInput(actions: any): void {
+  private handleAimingInput(_actions: any): void {
     // Use mouse position to determine facing direction
     const mousePos = Input.getMousePosition();
     const canvasWidth = this.app.screen.width;
@@ -229,23 +228,38 @@ export class Game {
     const currentCameraY = -this.cameraContainer.y + GAME_CONFIG.HEIGHT / 2 - cameraOffset;
     const distanceFromCenter = Math.abs(playerPos.y - currentCameraY);
     
-    // Dynamic Y smoothing - faster when player is far from center
-    let ySmoothing = 4.0; // Base smoothing for normal movement
+    // For very fast upward movement, use minimal or no smoothing to prevent jitter
+    const isMovingUpFast = playerVelocity.y < -300; // Negative Y is upward
     
-    // Speed up if player is getting far from center
-    if (distanceFromCenter > GAME_CONFIG.HEIGHT * 0.2) {
-      // Use faster catch-up when far away
-      ySmoothing = 8.0 + (distanceFromCenter / GAME_CONFIG.HEIGHT) * 4;
+    if (isMovingUpFast) {
+      // Direct positioning or very fast tracking for upward launches
+      if (playerVelocity.y < -600) {
+        // Instant tracking for very fast upward movement
+        this.cameraContainer.y = targetY;
+      } else {
+        // Very fast tracking for moderate upward movement
+        const yLerp = 1 - Math.pow(0.5, deltaTime * 20.0);
+        this.cameraContainer.y = this.cameraContainer.y + (targetY - this.cameraContainer.y) * yLerp;
+      }
+    } else {
+      // Normal smoothing for other movements
+      let ySmoothing = 4.0; // Base smoothing for normal movement
+      
+      // Speed up if player is getting far from center
+      if (distanceFromCenter > GAME_CONFIG.HEIGHT * 0.2) {
+        // Use faster catch-up when far away
+        ySmoothing = 8.0 + (distanceFromCenter / GAME_CONFIG.HEIGHT) * 4;
+      }
+      
+      // Consider downward velocity for faster tracking
+      if (playerVelocity.y > 400) {
+        ySmoothing = Math.max(ySmoothing, 10.0);
+      }
+      
+      // Apply Y smoothing
+      const yLerp = 1 - Math.pow(0.5, deltaTime * ySmoothing);
+      this.cameraContainer.y = this.cameraContainer.y + (targetY - this.cameraContainer.y) * yLerp;
     }
-    
-    // Also consider vertical velocity for even faster tracking during launches
-    if (Math.abs(playerVelocity.y) > 400) {
-      ySmoothing = Math.max(ySmoothing, 10.0);
-    }
-    
-    // Apply Y smoothing
-    const yLerp = 1 - Math.pow(0.5, deltaTime * ySmoothing);
-    this.cameraContainer.y = this.cameraContainer.y + (targetY - this.cameraContainer.y) * yLerp;
     
     // Simple dynamic zoom based on vertical speed only
     const baseScale = 1.0;
@@ -268,7 +282,7 @@ export class Game {
   }
   
   // Called by Player when throwing boomerang
-  public spawnBoomerang(owner: Player, throwParams: BoomerangThrowParams): void {
+  public spawnBoomerang(_owner: Player, throwParams: BoomerangThrowParams): void {
     if (this.boomerang) {
       this.boomerang.throw(throwParams);
     }

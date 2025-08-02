@@ -278,7 +278,7 @@ export class Player {
     this.handleStateSpecificBehavior(deltaTime);
   }
   
-  private updateStateTransitions(velocityY: number, deltaTime: number): void {
+  private updateStateTransitions(_velocityY: number, _deltaTime: number): void {
     // Auto state transitions based on physics
     if (!this.isGrounded) {
       // Force exit aiming if we become airborne
@@ -365,15 +365,15 @@ export class Player {
     }
   }
 
-  public moveLeft(deltaTime: number): void {
+  public moveLeft(_deltaTime: number): void {
     this.move(-1);
   }
 
-  public moveRight(deltaTime: number): void {
+  public moveRight(_deltaTime: number): void {
     this.move(1);
   }
 
-  public stopMoving(deltaTime: number): void {
+  public stopMoving(_deltaTime: number): void {
     const state = this.currentState;
     if (state === PlayerState.Idle || state === PlayerState.Moving || 
         state === PlayerState.Crouching || state === PlayerState.Airborne) {

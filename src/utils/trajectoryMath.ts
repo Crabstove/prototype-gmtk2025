@@ -1,5 +1,5 @@
 import { Vector2 } from '../types';
-import { BOOMERANG_CONFIG, TRAJECTORY_CONFIG } from '../constants/game.constants';
+import { BOOMERANG_CONFIG } from '../constants/game.constants';
 
 /**
  * Shared trajectory calculation logic for boomerang path

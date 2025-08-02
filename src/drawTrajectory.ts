@@ -1,6 +1,6 @@
 import * as PIXI from 'pixi.js';
 import { Vector2 } from './types';
-import { BOOMERANG_CONFIG, TRAJECTORY_CONFIG } from './constants/game.constants';
+import { TRAJECTORY_CONFIG } from './constants/game.constants';
 import { calculateTrajectoryParams, calculateTrajectoryPoint } from './utils/trajectoryMath';
 
 /**
