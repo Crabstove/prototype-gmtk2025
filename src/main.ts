@@ -7,7 +7,7 @@ async function initializeGame(): Promise<void> {
     const RAPIER = await import('@dimforge/rapier2d');
     
     const game = new Game();
-    await game.init(RAPIER as any);
+    await game.init(RAPIER);
     
     document.body.appendChild(game.getCanvas());
   } catch (error) {

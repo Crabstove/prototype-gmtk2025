@@ -32,10 +32,10 @@ export function setCanvas(canvas: HTMLCanvasElement): void {
 
 export function getInputActions(): InputActions {
   return {
-    moveLeft: !!(keys['KeyA'] || keys['ArrowLeft']),
-    moveRight: !!(keys['KeyD'] || keys['ArrowRight']),
-    crouch: !!(keys['KeyS'] || keys['ControlLeft'] || keys['ControlRight'] || keys['KeyC'] || keys['ArrowDown']),
-    action: !!(keys['KeyF']),
+    moveLeft: keys['KeyA'] || keys['ArrowLeft'] || false,
+    moveRight: keys['KeyD'] || keys['ArrowRight'] || false,
+    crouch: keys['KeyS'] || keys['ControlLeft'] || keys['ControlRight'] || keys['KeyC'] || keys['ArrowDown'] || false,
+    action: keys['KeyF'] || false,
   };
 }
 
