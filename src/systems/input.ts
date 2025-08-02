@@ -2,7 +2,9 @@ import { InputActions } from '../types';
 
 // Global state for input tracking
 const keys: Record<string, boolean> = {};
+let mouseX = 0;
 let mouseY = 0;
+let initialAimMouseX = 0;
 let initialAimMouseY = 0;
 let canvasRect: DOMRect | null = null;
 
@@ -12,6 +14,7 @@ function setupListeners(): void {
   window.addEventListener('keyup', (e) => { keys[e.code] = false; });
   window.addEventListener('mousemove', (e) => {
     if (canvasRect) {
+      mouseX = e.clientX - canvasRect.left;
       mouseY = e.clientY - canvasRect.top;
     }
   });
@@ -39,14 +42,27 @@ export function getInputActions(): InputActions {
   };
 }
 
+export function getMouseX(): number {
+  return mouseX;
+}
+
 export function getMouseY(): number {
   return mouseY;
 }
 
-export function setInitialAimMouseY(): void {
+export function setInitialAimMouse(): void {
+  initialAimMouseX = mouseX;
   initialAimMouseY = mouseY;
 }
 
 export function getMouseYDeltaFromAimStart(): number {
   return initialAimMouseY - mouseY; // Positive when mouse moves up
+}
+
+export function getMouseXDeltaFromAimStart(): number {
+  return mouseX - initialAimMouseX; // Positive when mouse moves right
+}
+
+export function getMousePosition(): { x: number, y: number } {
+  return { x: mouseX, y: mouseY };
 }

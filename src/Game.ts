@@ -133,12 +133,13 @@ export class Game {
   }
   
   private handleAimingInput(actions: any): void {
-    // During aiming, only allow direction changes (no movement)
-    if (actions.moveLeft) {
-      this.player.setFacingDirection(false);
-    } else if (actions.moveRight) {
-      this.player.setFacingDirection(true);
-    }
+    // Use mouse position to determine facing direction
+    const mousePos = Input.getMousePosition();
+    const canvasWidth = this.app.screen.width;
+    
+    // Face right if mouse is on right half of screen, left otherwise
+    const shouldFaceRight = mousePos.x > canvasWidth / 2;
+    this.player.setFacingDirection(shouldFaceRight);
   }
   
   private handleActionButton(actions: any): void {
@@ -150,7 +151,7 @@ export class Game {
         // Start aiming when action is pressed with boomerang
         if (this.player.getState() !== PlayerState.Aiming) {
           this.player.startAiming();
-          Input.setInitialAimMouseY();
+          Input.setInitialAimMouse();
         }
         
         // While aiming, continuously update angle based on mouse
