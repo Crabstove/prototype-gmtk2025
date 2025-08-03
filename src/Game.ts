@@ -21,13 +21,12 @@ export class Game {
   private physicsAccumulator: number = 0;
   
   // Camera system
-  private cameraOffset: Vector2 = { x: 0, y: 0 };
-  private targetCameraOffset: Vector2 = { x: 0, y: 0 };
+  private readonly cameraOffset: Vector2 = { x: 0, y: 0 };
+  private readonly targetCameraOffset: Vector2 = { x: 0, y: 0 };
   private previousPlayerY: number = 0;
   private isBigJump: boolean = false;
-  private jumpStartY: number = 0;
   private bigJumpTime: number = 0;
-  private cameraShake: Vector2 = { x: 0, y: 0 };
+  private readonly cameraShake: Vector2 = { x: 0, y: 0 };
 
   public async init(RapierModule: typeof RAPIER): Promise<void> {
     this.RAPIER = RapierModule;
@@ -237,7 +236,6 @@ export class Game {
     // Start tracking big jump - detect sudden upward movement
     if (isAirborne && yDelta < -10 && !this.isBigJump) { // Negative Y is upward
       this.isBigJump = true;
-      this.jumpStartY = playerPos.y;
       this.bigJumpTime = 0;
       
       // Calculate dynamic offset based on movement direction
