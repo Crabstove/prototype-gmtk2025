@@ -1,5 +1,7 @@
 import { Game } from './Game';
 import "./HanddrawnGraphics";
+// @ts-ignore
+import { Howl } from 'howler';
 
 async function initializeGame(): Promise<void> {
   try {
@@ -10,6 +12,14 @@ async function initializeGame(): Promise<void> {
     await game.init(RAPIER);
     
     document.body.appendChild(game.getCanvas());
+
+    const music = new Howl({
+      src: ['music.mp3'],
+      loop: true,
+      volume: 0.5,
+    });
+    music.play();
+
   } catch (error) {
     console.error('Failed to initialize game:', error);
     throw error;
