@@ -103,15 +103,18 @@ export class Boomerang implements IBoomerang {
       .setTranslation(x, y);
     this.rigidBody = this.world.createRigidBody(rigidBodyDesc);
     
-    // Sensor collider
+    // Sensor collider - detect both player and environment
     const colliderDesc = this.RAPIER.ColliderDesc.ball(8)
       .setSensor(true)
-      .setActiveEvents(this.RAPIER.ActiveEvents.COLLISION_EVENTS)
-      .setCollisionGroups(
-        (COLLISION_GROUPS.BOOMERANG << 16) |
-        (COLLISION_GROUPS.PLAYER_STANDING | COLLISION_GROUPS.ENVIRONMENT)
-      );
+      .setActiveEvents(this.RAPIER.ActiveEvents.COLLISION_EVENTS);
+    
     this.collider = this.world.createCollider(colliderDesc, this.rigidBody);
+    
+    // Set collision groups after creation - boomerang can collide with environment and player
+    this.collider.setCollisionGroups(
+      (COLLISION_GROUPS.BOOMERANG << 16) | // Membership: this is a boomerang
+      (COLLISION_GROUPS.ENVIRONMENT | COLLISION_GROUPS.PLAYER_STANDING | COLLISION_GROUPS.PLAYER_CROUCHING) // Filter: can collide with these
+    );
   }
   
   public update(deltaTime: number): void {
@@ -158,7 +161,7 @@ export class Boomerang implements IBoomerang {
     if (this.hangTime <= 0) {
       // Start returning
       this.state = BoomerangState.Returning;
-      this.distanceTraveled = BOOMERANG_CONFIG.THROW_DISTANCE;
+      // Don't change distanceTraveled - keep it where we hung
     }
   }
   
@@ -272,9 +275,14 @@ export class Boomerang implements IBoomerang {
   }
   
   public checkWallCollision(): void {
-    if (this.state === BoomerangState.Throwing) {
+    // Only hang if we're in throwing state and not in grace period
+    if (this.state === BoomerangState.Throwing && this.gracePeriod <= 0) {
+      // Stop at current position and start hanging
       this.state = BoomerangState.Hanging;
       this.hangTime = BOOMERANG_CONFIG.HANG_TIME;
+      
+      // Lock the current distance traveled so it stays at collision point
+      // No need to update distanceTraveled as we want to hang at current position
     }
   }
   

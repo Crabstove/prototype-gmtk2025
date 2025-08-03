@@ -45,14 +45,16 @@ export class Level {
     const colliderDesc = this.RAPIER.ColliderDesc.cuboid(
       platform.width / 2,
       platform.height / 2
-    )
-      .setCollisionGroups(
-        // The format is: membership << 16 | filter
-        (COLLISION_GROUPS.ENVIRONMENT << 16) |
-        (COLLISION_GROUPS.PLAYER_STANDING | COLLISION_GROUPS.PLAYER_CROUCHING | 
-         COLLISION_GROUPS.BOOMERANG | COLLISION_GROUPS.ENEMY)
-      );
-    this.world.createCollider(colliderDesc, rigidBody);
+    );
+    
+    const collider = this.world.createCollider(colliderDesc, rigidBody);
+    
+    // Set collision groups - platforms are environment and can collide with everything
+    collider.setCollisionGroups(
+      (COLLISION_GROUPS.ENVIRONMENT << 16) | // Membership: this is environment
+      (COLLISION_GROUPS.PLAYER_STANDING | COLLISION_GROUPS.PLAYER_CROUCHING | 
+       COLLISION_GROUPS.BOOMERANG | COLLISION_GROUPS.ENEMY) // Filter: can collide with these
+    );
 
     const graphics = new PIXI.Graphics();
     graphics.wiggle = 3;

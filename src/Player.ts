@@ -100,7 +100,7 @@ export class Player {
       maxGhosts: 10,
       spawnInterval: 0.05, // More frequent base spawn rate
       fadeTime: 0.25, // Longer fade for visibility
-      initialAlpha: 0.35, // Set to 0.35
+      initialAlpha: 0.6, // Set to 0.6
       trailColor: 0xff0000 // Red ghosts
     });
   }
@@ -303,45 +303,45 @@ export class Player {
     if (frame === 0) {
       // Multiple embers
       this.fireEffect.rect(-halfWidth + 6, -halfHeight - 5, 2, 1);
-      this.fireEffect.fill(0xff3300, 0.9);
+      this.fireEffect.fill({ color: 0xff3300, alpha: 0.9 });
       this.fireEffect.rect(-halfWidth + 8, -halfHeight - 7, 1, 2);
-      this.fireEffect.fill(0xff0000, 0.7);
+      this.fireEffect.fill({ color: 0xff0000, alpha: 0.7 });
       // Right side embers
       this.fireEffect.rect(halfWidth + 3, -5, 1, 1);
-      this.fireEffect.fill(0xff0000, 0.8);
+      this.fireEffect.fill({ color: 0xff0000, alpha: 0.8 });
       this.fireEffect.rect(halfWidth + 2, 2, 2, 1);
-      this.fireEffect.fill(0xff6600, 0.6);
+      this.fireEffect.fill({ color: 0xff6600, alpha: 0.6 });
       // Bottom ember
       this.fireEffect.rect(-2, halfHeight - 5, 1, 2);
-      this.fireEffect.fill(0xff3300, 0.7);
+      this.fireEffect.fill({ color: 0xff3300, alpha: 0.7 });
     } else if (frame === 1) {
       // Embers moved up and spread
       this.fireEffect.rect(-halfWidth + 7, -halfHeight - 8, 2, 2);
-      this.fireEffect.fill(0xff3300, 0.6);
+      this.fireEffect.fill({ color: 0xff3300, alpha: 0.6 });
       this.fireEffect.rect(-halfWidth + 4, -halfHeight - 6, 1, 1);
-      this.fireEffect.fill(0xff0000, 0.8);
+      this.fireEffect.fill({ color: 0xff0000, alpha: 0.8 });
       // Bottom embers rising
       this.fireEffect.rect(3, halfHeight - 6, 2, 1);
-      this.fireEffect.fill(0xff6600, 0.8);
+      this.fireEffect.fill({ color: 0xff6600, alpha: 0.8 });
       this.fireEffect.rect(-3, halfHeight - 7, 1, 2);
-      this.fireEffect.fill(0xff0000, 0.7);
+      this.fireEffect.fill({ color: 0xff0000, alpha: 0.7 });
       // Side embers
       this.fireEffect.rect(-halfWidth - 4, 0, 1, 1);
-      this.fireEffect.fill(0xff3300, 0.6);
+      this.fireEffect.fill({ color: 0xff3300, alpha: 0.6 });
     } else {
       // Embers dissipating
       this.fireEffect.rect(-halfWidth + 8, -halfHeight - 10, 1, 1);
-      this.fireEffect.fill(0xff3300, 0.3);
+      this.fireEffect.fill({ color: 0xff3300, alpha: 0.3 });
       this.fireEffect.rect(-halfWidth + 9, -halfHeight - 11, 2, 1);
-      this.fireEffect.fill(0xff0000, 0.4);
+      this.fireEffect.fill({ color: 0xff0000, alpha: 0.4 });
       // New embers spawning
       this.fireEffect.rect(-halfWidth - 4, 10, 2, 2);
-      this.fireEffect.fill(0xff0000, 0.7);
+      this.fireEffect.fill({ color: 0xff0000, alpha: 0.7 });
       this.fireEffect.rect(halfWidth + 4, -10, 1, 1);
-      this.fireEffect.fill(0xff6600, 0.6);
+      this.fireEffect.fill({ color: 0xff6600, alpha: 0.6 });
       // Top embers
       this.fireEffect.rect(0, -halfHeight - 6, 1, 2);
-      this.fireEffect.fill(0xff3300, 0.5);
+      this.fireEffect.fill({ color: 0xff3300, alpha: 0.5 });
     }
   }
   
@@ -425,7 +425,7 @@ export class Player {
     graphics.lineTo(-leftEyeSpacing + eyeWidth, eyeY + 4);  // Bottom inner
     graphics.lineTo(-leftEyeSpacing, eyeY + eyeHeight);  // Bottom point
     graphics.closePath();
-    graphics.fill(0xff0000, 0.2);
+    graphics.fill({ color: 0xff0000, alpha: 0.2 });
     
     // Mid crimson layer
     graphics.beginPath();
@@ -434,7 +434,7 @@ export class Player {
     graphics.lineTo(-leftEyeSpacing + eyeWidth - 1, eyeY + 3.5);  // Bottom inner
     graphics.lineTo(-leftEyeSpacing, eyeY + eyeHeight - 0.5);  // Bottom
     graphics.closePath();
-    graphics.fill(0xff0000, 0.5);
+    graphics.fill({ color: 0xff0000, alpha: 0.5 });
     
     // Bright crimson core
     graphics.beginPath();
@@ -452,7 +452,7 @@ export class Player {
     graphics.lineTo(-leftEyeSpacing + eyeWidth - 3, eyeY + 2.5);
     graphics.lineTo(-leftEyeSpacing, eyeY + eyeHeight - 1.5);
     graphics.closePath();
-    graphics.fill(0xff3300, 0.8);
+    graphics.fill({ color: 0xff3300, alpha: 0.8 });
     
     // Right eye - sharp symmetrical V-shape (perfect mirror)
     // Outer glow
@@ -462,7 +462,7 @@ export class Player {
     graphics.lineTo(rightEyeSpacing - eyeWidth, eyeY + 4);  // Bottom inner
     graphics.lineTo(rightEyeSpacing, eyeY + eyeHeight);  // Bottom point
     graphics.closePath();
-    graphics.fill(0xff0000, 0.2);
+    graphics.fill({ color: 0xff0000, alpha: 0.2 });
     
     // Mid crimson layer
     graphics.beginPath();
@@ -471,7 +471,7 @@ export class Player {
     graphics.lineTo(rightEyeSpacing - eyeWidth + 1, eyeY + 3.5);  // Bottom inner
     graphics.lineTo(rightEyeSpacing, eyeY + eyeHeight - 0.5);  // Bottom
     graphics.closePath();
-    graphics.fill(0xff0000, 0.5);
+    graphics.fill({ color: 0xff0000, alpha: 0.5 });
     
     // Bright crimson core
     graphics.beginPath();
@@ -489,7 +489,7 @@ export class Player {
     graphics.lineTo(rightEyeSpacing - eyeWidth + 3, eyeY + 2.5);
     graphics.lineTo(rightEyeSpacing, eyeY + eyeHeight - 1.5);
     graphics.closePath();
-    graphics.fill(0xff3300, 0.8);
+    graphics.fill({ color: 0xff3300, alpha: 0.8 });
     
     // Add some internal dark cracks/veins for texture
     graphics.moveTo(-halfWidth + 5, -halfHeight + height * 0.4);

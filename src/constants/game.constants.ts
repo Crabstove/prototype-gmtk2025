@@ -1,6 +1,6 @@
 export const GAME_CONFIG = {
-  WIDTH: 800,
-  HEIGHT: 600,
+  WIDTH: 1024,
+  HEIGHT: 640,
   BACKGROUND_COLOR: 0x18181b,
   ANTIALIAS: true,
 } as const;
@@ -65,7 +65,7 @@ export const BOOMERANG_CONFIG = {
   PREVIEW_COLOR: 0xef4444,  // White preview line
   PREVIEW_ALPHA: 0.5,  // Preview line transparency
   PREVIEW_WIDTH: 2,  // Preview line width
-  GRACE_PERIOD: 0.5,  // Half second where boomerang can't be caught
+  GRACE_PERIOD: 0.1,  // Very short grace period to avoid immediate collisions with player
 } as const;
 
 export const TIME_SLOW_CONFIG = {

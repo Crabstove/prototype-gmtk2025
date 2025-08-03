@@ -6,7 +6,8 @@ import { Boomerang } from './entities/Boomerang';
 import * as Input from './systems/input';
 import { TimeSlowEffect } from './systems/TimeSlowEffect';
 import { RapierWorld, PlayerState, BoomerangState, BoomerangThrowParams, Vector2 } from './types';
-import { GAME_CONFIG, PHYSICS, TIME_SLOW_CONFIG, DISMOUNT_CONFIG } from './constants/game.constants';
+import { GAME_CONFIG, PHYSICS, TIME_SLOW_CONFIG, DISMOUNT_CONFIG, COLLISION_GROUPS } from './constants/game.constants';
+import { LEVEL_1_PLATFORMS } from './data/level.data';
 import "pixi.js/math-extras"
 
 export class Game {
@@ -385,12 +386,29 @@ export class Game {
       this.boomerang.handlePlayerCollision();
     }
     
-    // Check collision with walls/platforms
-    this.world.intersectionsWith(boomerangCollider, (otherCollider) => {
-      if (otherCollider === playerCollider) return true;
-      this.boomerang!.checkWallCollision();
-      return false;
-    });
+    // Simple collision check for boomerang vs platforms
+    const boomerangPos = this.boomerang.getPosition();
+    if (!boomerangPos) return;
+    
+    // Check each platform in level data
+    const platforms = this.getPlatformData();
+    for (const platform of platforms) {
+      // Simple AABB collision check
+      const boomerangRadius = 8;
+      
+      if (boomerangPos.x + boomerangRadius >= platform.x &&
+          boomerangPos.x - boomerangRadius <= platform.x + platform.width &&
+          boomerangPos.y + boomerangRadius >= platform.y &&
+          boomerangPos.y - boomerangRadius <= platform.y + platform.height) {
+        this.boomerang!.checkWallCollision();
+        return; // Stop checking after first collision
+      }
+    }
+  }
+  
+  private getPlatformData() {
+    // Import platform data from level
+    return LEVEL_1_PLATFORMS;
   }
   
   private easeInOutCubic(t: number): number {
