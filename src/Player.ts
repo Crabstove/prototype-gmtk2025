@@ -3,14 +3,20 @@ import type * as RAPIER from '@dimforge/rapier2d';
 import { RapierWorld, RapierRigidBody, Vector2, PlayerState, BoomerangThrowParams, IBoomerang } from './types';
 import { PLAYER_CONFIG, PHYSICS, BOOMERANG_CONFIG, COLLISION_GROUPS, PARRY_CONFIG, TRAJECTORY_CONFIG } from './constants/game.constants';
 import { drawBoomerangTrajectory } from './drawTrajectory';
+import { GhostTrail } from './GhostTrail';
 
 export class Player {
   private world: RapierWorld;
   private rigidBody!: RapierRigidBody;
   private collider!: RAPIER.Collider;
   private sprite!: PIXI.Graphics;
+  private fireEffect!: PIXI.Graphics;
+  private glowAura!: PIXI.Graphics;
+  private ghostTrail!: GhostTrail;
   private container: PIXI.Container;
   private RAPIER: typeof RAPIER;
+  private fireAnimationFrame: number = 0;
+  private fireAnimationTimer: number = 0;
   
   // Custom physics system (Celeste-style)
   private velocity: Vector2 = { x: 0, y: 0 };
@@ -46,7 +52,13 @@ export class Player {
     this.RAPIER = RapierModule;
     
     this.createRigidBody(x, y);
+    this.createGhostTrail();
+    this.createGlowAura();
     this.createSprite();
+    this.createFireEffect();
+    // Draw initial glow and fire frames
+    this.drawGlowAura();
+    this.drawFireFrame();
     this.currentState = PlayerState.Idle;
     this.trajectoryGraphics = new PIXI.Graphics();
     this.trajectoryGraphics.alpha = 0.5;
@@ -82,19 +94,412 @@ export class Player {
     this.collider.setActiveEvents(this.RAPIER.ActiveEvents.COLLISION_EVENTS);
   }
 
+  private createGhostTrail(): void {
+    // Ghost trail renders behind everything
+    this.ghostTrail = new GhostTrail(this.container, {
+      maxGhosts: 10,
+      spawnInterval: 0.05, // More frequent base spawn rate
+      fadeTime: 0.25, // Longer fade for visibility
+      initialAlpha: 0.35, // Set to 0.35
+      trailColor: 0xff0000 // Red ghosts
+    });
+  }
+
+  private createGlowAura(): void {
+    this.glowAura = new PIXI.Graphics();
+    // Add glow aura as the first layer (behind sprite)
+    this.container.addChild(this.glowAura);
+  }
+
   private createSprite(): void {
     this.sprite = new PIXI.Graphics();
     this.sprite.wiggle = 2;
     this.sprite.maxSegmentLength = 10;
-    this.sprite.rect(
-      -PLAYER_CONFIG.WIDTH / 2,
-      -PLAYER_CONFIG.HEIGHT / 2,
-      PLAYER_CONFIG.WIDTH,
-      PLAYER_CONFIG.HEIGHT
-    );
-    this.sprite.stroke({color: PLAYER_CONFIG.COLOR, width: 3});
+    
+    // Draw enhanced character with more details
+    this.drawDetailedCharacter(this.sprite, PLAYER_CONFIG.WIDTH, PLAYER_CONFIG.HEIGHT, this.isFacingRight);
     
     this.container.addChild(this.sprite);
+  }
+  
+  private createFireEffect(): void {
+    this.fireEffect = new PIXI.Graphics();
+    // Add fire effect on top of the main sprite for visibility
+    this.container.addChild(this.fireEffect);
+  }
+  
+  private updateFireAnimation(deltaTime: number): void {
+    this.fireAnimationTimer += deltaTime;
+    
+    // Change frame every 200ms (5 FPS for fire animation) - slower, more subtle
+    if (this.fireAnimationTimer > 0.2) {
+      this.fireAnimationTimer = 0;
+      this.fireAnimationFrame = (this.fireAnimationFrame + 1) % 3;
+    }
+    // Always redraw the glow and fire frames
+    this.drawGlowAura();
+    this.drawFireFrame();
+  }
+  
+  private drawGlowAura(): void {
+    this.glowAura.clear();
+    
+    const width = PLAYER_CONFIG.WIDTH;
+    const height = this.currentColliderHeight;
+    const halfWidth = width / 2;
+    const halfHeight = height / 2;
+    
+    // Draw multiple layered rectangles with decreasing alpha for soft glow
+    // Outermost layer - very faint and large
+    this.glowAura.rect(-halfWidth - 8, -halfHeight - 8, width + 16, height + 16);
+    this.glowAura.stroke({color: 0xff0000, width: 3, alpha: 0.08});
+    
+    // Second layer
+    this.glowAura.rect(-halfWidth - 6, -halfHeight - 6, width + 12, height + 12);
+    this.glowAura.stroke({color: 0xff0000, width: 2.5, alpha: 0.12});
+    
+    // Third layer
+    this.glowAura.rect(-halfWidth - 4, -halfHeight - 4, width + 8, height + 8);
+    this.glowAura.stroke({color: 0xff3300, width: 2, alpha: 0.15});
+    
+    // Fourth layer - closer to body
+    this.glowAura.rect(-halfWidth - 2, -halfHeight - 2, width + 4, height + 4);
+    this.glowAura.stroke({color: 0xff6600, width: 1.5, alpha: 0.18});
+    
+    // Innermost layer - brightest but still subtle
+    this.glowAura.rect(-halfWidth - 1, -halfHeight - 1, width + 2, height + 2);
+    this.glowAura.stroke({color: 0xff9900, width: 1, alpha: 0.22});
+  }
+  
+  private drawFireFrame(): void {
+    this.fireEffect.clear();
+    
+    const width = PLAYER_CONFIG.WIDTH;
+    const height = this.currentColliderHeight;
+    const halfWidth = width / 2;
+    const halfHeight = height / 2;
+    
+    // More pronounced decaying fire effect - corrupted borders peeling upwards
+    const frame = this.fireAnimationFrame;
+    
+    // Draw main body outline with more dramatic distortions
+    this.fireEffect.beginPath();
+    
+    // Top edge with pronounced upward decay
+    this.fireEffect.moveTo(-halfWidth - 1, -halfHeight);
+    if (frame === 0) {
+      this.fireEffect.lineTo(-halfWidth + 2, -halfHeight - 2); // Deeper peel
+      this.fireEffect.lineTo(-halfWidth + 3, -halfHeight - 3.5); // Peak
+      this.fireEffect.lineTo(-halfWidth + 5, -halfHeight);
+      this.fireEffect.lineTo(-halfWidth + 7, -halfHeight - 1);
+      this.fireEffect.lineTo(-halfWidth + 8, -halfHeight - 4); // Large peel
+      this.fireEffect.lineTo(-halfWidth + 9, -halfHeight - 2);
+      this.fireEffect.lineTo(-halfWidth + 11, -halfHeight);
+    } else if (frame === 1) {
+      this.fireEffect.lineTo(-halfWidth + 1, -halfHeight - 1);
+      this.fireEffect.lineTo(-halfWidth + 3, -halfHeight);
+      this.fireEffect.lineTo(-halfWidth + 4, -halfHeight - 3); // Different spot
+      this.fireEffect.lineTo(-halfWidth + 5, -halfHeight - 4); // Higher
+      this.fireEffect.lineTo(-halfWidth + 7, -halfHeight);
+      this.fireEffect.lineTo(-halfWidth + 10, -halfHeight - 2.5);
+      this.fireEffect.lineTo(-halfWidth + 12, -halfHeight);
+    } else {
+      this.fireEffect.lineTo(-halfWidth + 1, -halfHeight - 2);
+      this.fireEffect.lineTo(-halfWidth + 2, -halfHeight - 1);
+      this.fireEffect.lineTo(-halfWidth + 6, -halfHeight);
+      this.fireEffect.lineTo(-halfWidth + 8, -halfHeight - 1);
+      this.fireEffect.lineTo(-halfWidth + 9, -halfHeight - 5); // Highest peel
+      this.fireEffect.lineTo(-halfWidth + 10, -halfHeight - 3);
+      this.fireEffect.lineTo(-halfWidth + 12, -halfHeight);
+    }
+    this.fireEffect.lineTo(halfWidth - 5, -halfHeight);
+    if (frame === 2) {
+      this.fireEffect.lineTo(halfWidth - 3, -halfHeight - 2.5); // Right side peel
+      this.fireEffect.lineTo(halfWidth - 2, -halfHeight - 1);
+    } else if (frame === 0) {
+      this.fireEffect.lineTo(halfWidth - 4, -halfHeight - 1.5);
+    }
+    this.fireEffect.lineTo(halfWidth + 1, -halfHeight);
+    
+    // Right edge with more dramatic corruption
+    this.fireEffect.lineTo(halfWidth, -halfHeight + 3);
+    if (frame === 1) {
+      this.fireEffect.lineTo(halfWidth + 2.5, -halfHeight + 5); // More outward
+      this.fireEffect.lineTo(halfWidth + 3, -halfHeight + 7); // Pronounced decay
+      this.fireEffect.lineTo(halfWidth + 1, -halfHeight + 9);
+      this.fireEffect.lineTo(halfWidth, -halfHeight + 11);
+    } else if (frame === 2) {
+      this.fireEffect.lineTo(halfWidth + 1.5, -halfHeight + 6);
+      this.fireEffect.lineTo(halfWidth, -halfHeight + 8);
+    }
+    this.fireEffect.lineTo(halfWidth, 0);
+    if (frame === 0) {
+      this.fireEffect.lineTo(halfWidth + 3, 2); // Larger corruption
+      this.fireEffect.lineTo(halfWidth + 2.5, 4);
+      this.fireEffect.lineTo(halfWidth, 6);
+    } else if (frame === 2) {
+      this.fireEffect.lineTo(halfWidth + 2, 1);
+      this.fireEffect.lineTo(halfWidth + 1, 3);
+    }
+    this.fireEffect.lineTo(halfWidth, halfHeight);
+    
+    // Bottom edge with dramatic upward peeling
+    this.fireEffect.lineTo(halfWidth - 2, halfHeight);
+    if (frame === 2) {
+      this.fireEffect.lineTo(halfWidth - 3, halfHeight - 2); // Peeling up
+      this.fireEffect.lineTo(halfWidth - 4, halfHeight - 3.5); // Higher
+      this.fireEffect.lineTo(halfWidth - 5, halfHeight - 1);
+      this.fireEffect.lineTo(halfWidth - 7, halfHeight);
+    } else if (frame === 1) {
+      this.fireEffect.lineTo(halfWidth - 4, halfHeight - 1.5);
+      this.fireEffect.lineTo(halfWidth - 6, halfHeight);
+    }
+    this.fireEffect.lineTo(0, halfHeight);
+    if (frame === 0) {
+      this.fireEffect.lineTo(-1, halfHeight - 2); // Deeper peel
+      this.fireEffect.lineTo(-2, halfHeight - 3.5); // Center peak
+      this.fireEffect.lineTo(-3, halfHeight - 2);
+      this.fireEffect.lineTo(-4, halfHeight);
+    } else if (frame === 1) {
+      this.fireEffect.lineTo(-2, halfHeight - 1);
+      this.fireEffect.lineTo(-3, halfHeight - 2.5);
+      this.fireEffect.lineTo(-5, halfHeight);
+    }
+    this.fireEffect.lineTo(-halfWidth + 2, halfHeight);
+    if (frame === 2) {
+      this.fireEffect.lineTo(-halfWidth, halfHeight - 1);
+    }
+    this.fireEffect.lineTo(-halfWidth, halfHeight);
+    
+    // Left edge with pronounced decay
+    this.fireEffect.lineTo(-halfWidth, halfHeight - 3);
+    if (frame === 1) {
+      this.fireEffect.lineTo(-halfWidth - 2.5, halfHeight - 5); // More outward
+      this.fireEffect.lineTo(-halfWidth - 3, halfHeight - 7); // Dramatic decay
+      this.fireEffect.lineTo(-halfWidth - 1, halfHeight - 9);
+      this.fireEffect.lineTo(-halfWidth, halfHeight - 11);
+    } else if (frame === 0) {
+      this.fireEffect.lineTo(-halfWidth - 1.5, halfHeight - 6);
+      this.fireEffect.lineTo(-halfWidth, halfHeight - 8);
+    }
+    this.fireEffect.lineTo(-halfWidth, 0);
+    if (frame === 2) {
+      this.fireEffect.lineTo(-halfWidth - 3.5, -2); // Large decay
+      this.fireEffect.lineTo(-halfWidth - 2, -4);
+      this.fireEffect.lineTo(-halfWidth, -6);
+    } else if (frame === 0) {
+      this.fireEffect.lineTo(-halfWidth - 2, -1);
+      this.fireEffect.lineTo(-halfWidth - 1, -3);
+    }
+    this.fireEffect.lineTo(-halfWidth, -halfHeight);
+    
+    this.fireEffect.closePath();
+    this.fireEffect.stroke({color: 0xff0000, width: 2.5, alpha: 0.75}); // Thicker, more visible
+    
+    // Inner glow layer for more intensity
+    this.fireEffect.stroke({color: 0xff6600, width: 1, alpha: 0.4});
+    
+    // Add more floating embers that peel off
+    if (frame === 0) {
+      // Multiple embers
+      this.fireEffect.rect(-halfWidth + 6, -halfHeight - 5, 2, 1);
+      this.fireEffect.fill(0xff3300, 0.9);
+      this.fireEffect.rect(-halfWidth + 8, -halfHeight - 7, 1, 2);
+      this.fireEffect.fill(0xff0000, 0.7);
+      // Right side embers
+      this.fireEffect.rect(halfWidth + 3, -5, 1, 1);
+      this.fireEffect.fill(0xff0000, 0.8);
+      this.fireEffect.rect(halfWidth + 2, 2, 2, 1);
+      this.fireEffect.fill(0xff6600, 0.6);
+      // Bottom ember
+      this.fireEffect.rect(-2, halfHeight - 5, 1, 2);
+      this.fireEffect.fill(0xff3300, 0.7);
+    } else if (frame === 1) {
+      // Embers moved up and spread
+      this.fireEffect.rect(-halfWidth + 7, -halfHeight - 8, 2, 2);
+      this.fireEffect.fill(0xff3300, 0.6);
+      this.fireEffect.rect(-halfWidth + 4, -halfHeight - 6, 1, 1);
+      this.fireEffect.fill(0xff0000, 0.8);
+      // Bottom embers rising
+      this.fireEffect.rect(3, halfHeight - 6, 2, 1);
+      this.fireEffect.fill(0xff6600, 0.8);
+      this.fireEffect.rect(-3, halfHeight - 7, 1, 2);
+      this.fireEffect.fill(0xff0000, 0.7);
+      // Side embers
+      this.fireEffect.rect(-halfWidth - 4, 0, 1, 1);
+      this.fireEffect.fill(0xff3300, 0.6);
+    } else {
+      // Embers dissipating
+      this.fireEffect.rect(-halfWidth + 8, -halfHeight - 10, 1, 1);
+      this.fireEffect.fill(0xff3300, 0.3);
+      this.fireEffect.rect(-halfWidth + 9, -halfHeight - 11, 2, 1);
+      this.fireEffect.fill(0xff0000, 0.4);
+      // New embers spawning
+      this.fireEffect.rect(-halfWidth - 4, 10, 2, 2);
+      this.fireEffect.fill(0xff0000, 0.7);
+      this.fireEffect.rect(halfWidth + 4, -10, 1, 1);
+      this.fireEffect.fill(0xff6600, 0.6);
+      // Top embers
+      this.fireEffect.rect(0, -halfHeight - 6, 1, 2);
+      this.fireEffect.fill(0xff3300, 0.5);
+    }
+  }
+  
+  private drawDetailedCharacter(graphics: PIXI.Graphics, width: number, height: number, facingRight: boolean = true): void {
+    const halfWidth = width / 2;
+    const halfHeight = height / 2;
+    
+    // Dark silhouette body - filled black
+    graphics.rect(-halfWidth, -halfHeight, width, height);
+    graphics.fill(0x000000);
+    
+    // Jagged, chaotic outline with spikes
+    graphics.beginPath();
+    graphics.moveTo(-halfWidth, -halfHeight + 2);
+    graphics.lineTo(-halfWidth - 2, -halfHeight); // top left spike
+    graphics.lineTo(-halfWidth + 3, -halfHeight);
+    graphics.lineTo(-halfWidth + 4, -halfHeight - 3); // top spike 1
+    graphics.lineTo(-halfWidth + 6, -halfHeight);
+    graphics.lineTo(0, -halfHeight + 1);
+    graphics.lineTo(2, -halfHeight - 2); // top center spike
+    graphics.lineTo(halfWidth - 5, -halfHeight);
+    graphics.lineTo(halfWidth - 3, -halfHeight - 3); // top right spike
+    graphics.lineTo(halfWidth - 1, -halfHeight);
+    graphics.lineTo(halfWidth + 2, -halfHeight + 2); // right top corner spike
+    graphics.lineTo(halfWidth, -halfHeight + 5);
+    
+    // Right side with jagged protrusions
+    graphics.lineTo(halfWidth + 3, -halfHeight + height * 0.2); // shoulder spike
+    graphics.lineTo(halfWidth, -halfHeight + height * 0.25);
+    graphics.lineTo(halfWidth + 2, -halfHeight + height * 0.4); // mid spike
+    graphics.lineTo(halfWidth, -halfHeight + height * 0.5);
+    graphics.lineTo(halfWidth + 1, -halfHeight + height * 0.7);
+    graphics.lineTo(halfWidth, halfHeight - 3);
+    
+    // Bottom with torn edges
+    graphics.lineTo(halfWidth - 2, halfHeight + 2); // bottom right tear
+    graphics.lineTo(halfWidth - 4, halfHeight);
+    graphics.lineTo(halfWidth - 6, halfHeight + 1);
+    graphics.lineTo(0, halfHeight - 1);
+    graphics.lineTo(-2, halfHeight + 3); // bottom center tear
+    graphics.lineTo(-halfWidth + 4, halfHeight);
+    graphics.lineTo(-halfWidth + 2, halfHeight + 2); // bottom left tear
+    graphics.lineTo(-halfWidth, halfHeight - 2);
+    
+    // Left side with jagged protrusions
+    graphics.lineTo(-halfWidth - 2, halfHeight - height * 0.3); // lower spike
+    graphics.lineTo(-halfWidth, halfHeight - height * 0.4);
+    graphics.lineTo(-halfWidth - 3, -halfHeight + height * 0.4); // mid spike
+    graphics.lineTo(-halfWidth, -halfHeight + height * 0.3);
+    graphics.lineTo(-halfWidth - 2, -halfHeight + height * 0.15); // shoulder spike
+    graphics.lineTo(-halfWidth, -halfHeight + 2);
+    
+    graphics.closePath();
+    graphics.stroke({color: 0xff0000, width: 3}); // Glowing crimson outline
+    graphics.stroke({color: 0xff3333, width: 1}); // Brighter inner glow
+    
+    // Sharp V-shaped demon eyes with intense glow
+    const eyeY = -halfHeight + height * 0.23;  // Centered vertically
+    const eyeWidth = 7;  // Bigger
+    const eyeHeight = 3.5;  // Proportional height
+    
+    // Eye positions based on facing direction
+    let leftEyeSpacing: number;
+    let rightEyeSpacing: number;
+    
+    if (!facingRight) {
+      // Facing LEFT - right eye shifted 2px left (looks left)
+      leftEyeSpacing = width * 0.3;
+      rightEyeSpacing = width * 0.3 - 2;  // Right eye 2px closer to center
+    } else {
+      // Facing RIGHT - to be configured later
+      leftEyeSpacing = width * 0.3;
+      rightEyeSpacing = width * 0.3;  // Placeholder - symmetric for now
+    }
+    
+    // Left eye - sharp symmetrical V-shape
+    // Outer glow
+    graphics.beginPath();
+    graphics.moveTo(-leftEyeSpacing - eyeWidth, eyeY - 2);  // Top outer
+    graphics.lineTo(-leftEyeSpacing, eyeY + 1);  // Center point
+    graphics.lineTo(-leftEyeSpacing + eyeWidth, eyeY + 4);  // Bottom inner
+    graphics.lineTo(-leftEyeSpacing, eyeY + eyeHeight);  // Bottom point
+    graphics.closePath();
+    graphics.fill(0xff0000, 0.2);
+    
+    // Mid crimson layer
+    graphics.beginPath();
+    graphics.moveTo(-leftEyeSpacing - eyeWidth + 1, eyeY - 1.5);  // Top outer
+    graphics.lineTo(-leftEyeSpacing, eyeY + 0.5);  // Center
+    graphics.lineTo(-leftEyeSpacing + eyeWidth - 1, eyeY + 3.5);  // Bottom inner
+    graphics.lineTo(-leftEyeSpacing, eyeY + eyeHeight - 0.5);  // Bottom
+    graphics.closePath();
+    graphics.fill(0xff0000, 0.5);
+    
+    // Bright crimson core
+    graphics.beginPath();
+    graphics.moveTo(-leftEyeSpacing - eyeWidth + 2, eyeY - 1);
+    graphics.lineTo(-leftEyeSpacing, eyeY);
+    graphics.lineTo(-leftEyeSpacing + eyeWidth - 2, eyeY + 3);
+    graphics.lineTo(-leftEyeSpacing, eyeY + eyeHeight - 1);
+    graphics.closePath();
+    graphics.fill(0xff0000);
+    
+    // Orange-red inner core (no white)
+    graphics.beginPath();
+    graphics.moveTo(-leftEyeSpacing - eyeWidth + 3, eyeY - 0.5);
+    graphics.lineTo(-leftEyeSpacing, eyeY + 0.5);
+    graphics.lineTo(-leftEyeSpacing + eyeWidth - 3, eyeY + 2.5);
+    graphics.lineTo(-leftEyeSpacing, eyeY + eyeHeight - 1.5);
+    graphics.closePath();
+    graphics.fill(0xff3300, 0.8);
+    
+    // Right eye - sharp symmetrical V-shape (perfect mirror)
+    // Outer glow
+    graphics.beginPath();
+    graphics.moveTo(rightEyeSpacing + eyeWidth, eyeY - 2);  // Top outer
+    graphics.lineTo(rightEyeSpacing, eyeY + 1);  // Center point
+    graphics.lineTo(rightEyeSpacing - eyeWidth, eyeY + 4);  // Bottom inner
+    graphics.lineTo(rightEyeSpacing, eyeY + eyeHeight);  // Bottom point
+    graphics.closePath();
+    graphics.fill(0xff0000, 0.2);
+    
+    // Mid crimson layer
+    graphics.beginPath();
+    graphics.moveTo(rightEyeSpacing + eyeWidth - 1, eyeY - 1.5);  // Top outer
+    graphics.lineTo(rightEyeSpacing, eyeY + 0.5);  // Center
+    graphics.lineTo(rightEyeSpacing - eyeWidth + 1, eyeY + 3.5);  // Bottom inner
+    graphics.lineTo(rightEyeSpacing, eyeY + eyeHeight - 0.5);  // Bottom
+    graphics.closePath();
+    graphics.fill(0xff0000, 0.5);
+    
+    // Bright crimson core
+    graphics.beginPath();
+    graphics.moveTo(rightEyeSpacing + eyeWidth - 2, eyeY - 1);
+    graphics.lineTo(rightEyeSpacing, eyeY);
+    graphics.lineTo(rightEyeSpacing - eyeWidth + 2, eyeY + 3);
+    graphics.lineTo(rightEyeSpacing, eyeY + eyeHeight - 1);
+    graphics.closePath();
+    graphics.fill(0xff0000);
+    
+    // Orange-red inner core (no white)
+    graphics.beginPath();
+    graphics.moveTo(rightEyeSpacing + eyeWidth - 3, eyeY - 0.5);
+    graphics.lineTo(rightEyeSpacing, eyeY + 0.5);
+    graphics.lineTo(rightEyeSpacing - eyeWidth + 3, eyeY + 2.5);
+    graphics.lineTo(rightEyeSpacing, eyeY + eyeHeight - 1.5);
+    graphics.closePath();
+    graphics.fill(0xff3300, 0.8);
+    
+    // Add some internal dark cracks/veins for texture
+    graphics.moveTo(-halfWidth + 5, -halfHeight + height * 0.4);
+    graphics.lineTo(-halfWidth + 7, -halfHeight + height * 0.45);
+    graphics.lineTo(-halfWidth + 6, -halfHeight + height * 0.5);
+    graphics.stroke({color: 0x1a0000, width: 1});
+    
+    graphics.moveTo(halfWidth - 5, -halfHeight + height * 0.6);
+    graphics.lineTo(halfWidth - 7, -halfHeight + height * 0.55);
+    graphics.stroke({color: 0x1a0000, width: 1});
   }
 
   public update(deltaTime: number): void {
@@ -116,10 +521,20 @@ export class Player {
         // Set velocity to zero to prevent physics conflicts
         this.rigidBody.setLinvel({ x: 0, y: 0 }, true);
         
-        // Update sprite manually since we're skipping normal physics
+        // Update sprite, glow, and fire effect manually since we're skipping normal physics
         const position = this.rigidBody.translation();
         this.sprite.x = position.x;
         this.sprite.y = position.y;
+        this.glowAura.x = position.x;
+        this.glowAura.y = position.y;
+        this.fireEffect.x = position.x;
+        this.fireEffect.y = position.y;
+        
+        // Update fire animation
+        this.updateFireAnimation(deltaTime);
+        
+        // Update ghost trail when riding
+        this.updateGhostTrail(deltaTime);
         
         // Update state machine
         this.updateStateMachine(deltaTime);
@@ -131,6 +546,8 @@ export class Player {
     this.updateFriction();
     this.updatePhysics(deltaTime);
     this.updateSprite();
+    this.updateFireAnimation(deltaTime);
+    this.updateGhostTrail(deltaTime);
     this.updateStateMachine(deltaTime);
   }
 
@@ -210,6 +627,50 @@ export class Player {
     const position = this.rigidBody.translation();
     this.sprite.x = position.x;
     this.sprite.y = position.y;
+    // Update glow aura position
+    this.glowAura.x = position.x;
+    this.glowAura.y = position.y;
+    // Update fire effect position
+    this.fireEffect.x = position.x;
+    this.fireEffect.y = position.y;
+  }
+  
+  private updateGhostTrail(deltaTime: number): void {
+    const position = this.getPosition();
+    const isMovingFast = Math.abs(this.velocity.x) > 100 || Math.abs(this.velocity.y) > 100;
+    
+    // Determine trail intensity based on state
+    let intensity = 0.2; // Default subtle trail
+    let shouldSpawnGhosts = false;
+    
+    if (this.isRidingBoomerang) {
+      // Pronounced trail when riding boomerang
+      intensity = 1.0;
+      shouldSpawnGhosts = true;
+    } else if (this.currentState === PlayerState.Airborne) {
+      // Full intensity when airborne (not riding)
+      intensity = 1.0;
+      shouldSpawnGhosts = true;
+    } else if (this.currentState === PlayerState.Sliding) {
+      // Same as running - subtle trail when sliding
+      intensity = 0.2;
+      shouldSpawnGhosts = true;
+    } else if (isMovingFast) {
+      // Subtle trail when running
+      intensity = 0.2;
+      shouldSpawnGhosts = true;
+    }
+    
+    // Update ghost trail with current player dimensions and intensity
+    this.ghostTrail.update(
+      deltaTime,
+      shouldSpawnGhosts,
+      PLAYER_CONFIG.WIDTH,
+      this.currentColliderHeight,
+      position.x,
+      position.y,
+      intensity
+    );
   }
 
   private updateGroundedState(): void {
@@ -356,7 +817,13 @@ export class Player {
       this.currentState = this.getGroundedState();
     }
     
-    this.isFacingRight = direction > 0;
+    // Update facing direction and redraw sprite if changed
+    const newFacing = direction > 0;
+    if (this.isFacingRight !== newFacing) {
+      this.isFacingRight = newFacing;
+      this.sprite.clear();
+      this.drawDetailedCharacter(this.sprite, PLAYER_CONFIG.WIDTH, this.currentColliderHeight, this.isFacingRight);
+    }
     
     if (state === PlayerState.Idle || state === PlayerState.Moving || state === PlayerState.Airborne) {
       this.targetVelocityX = direction * PLAYER_CONFIG.MOVE_SPEED;
@@ -488,13 +955,10 @@ export class Player {
     
     // Update sprite to match
     this.sprite.clear();
-    this.sprite.rect(
-      -width / 2,
-      -height / 2,
-      width,
-      height
-    );
-    this.sprite.stroke({color: PLAYER_CONFIG.COLOR, width: 3});
+    this.drawDetailedCharacter(this.sprite, width, height, this.isFacingRight);
+    // Redraw glow and fire effect for new size
+    this.drawGlowAura();
+    this.drawFireFrame();
   }
 
   public getPosition(): Vector2 {
@@ -693,6 +1157,14 @@ export class Player {
   
   public getCurrentVelocity(): Vector2 {
     return { x: this.velocity.x, y: this.velocity.y };
+  }
+  
+  public getIsGrounded(): boolean {
+    return this.isGrounded;
+  }
+  
+  public getIsFacingRight(): boolean {
+    return this.isFacingRight;
   }
 
 }

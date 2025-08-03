@@ -55,8 +55,8 @@ export class Boomerang implements IBoomerang {
   
   
   private drawBoomerang(): void {
-    const size = 11;
-    const thickness = 3;
+    const size = 16;
+    const thickness = 4;
     
     // L-shaped boomerang
     this.sprite.moveTo(-size/2, -size/2);
@@ -66,7 +66,7 @@ export class Boomerang implements IBoomerang {
     this.sprite.lineTo(size/2, size/2);
     this.sprite.lineTo(-size/2, size/2);
     this.sprite.closePath();
-    this.sprite.fill(0xff00ff); // Magenta
+    this.sprite.fill(0xff0000); // Red
   }
   
   public throw(params: BoomerangThrowParams): void {
@@ -104,7 +104,7 @@ export class Boomerang implements IBoomerang {
     this.rigidBody = this.world.createRigidBody(rigidBodyDesc);
     
     // Sensor collider
-    const colliderDesc = this.RAPIER.ColliderDesc.ball(5.5)
+    const colliderDesc = this.RAPIER.ColliderDesc.ball(8)
       .setSensor(true)
       .setActiveEvents(this.RAPIER.ActiveEvents.COLLISION_EVENTS)
       .setCollisionGroups(

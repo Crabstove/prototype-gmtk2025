@@ -24,7 +24,7 @@ export const PHYSICS = {
 export const PLAYER_CONFIG = {
   WIDTH: 32,
   HEIGHT: 64,
-  CROUCH_HEIGHT: 24,
+  CROUCH_HEIGHT: 32,
   COLOR: 0xec4899,
   MOVE_SPEED: 340,
   CROUCH_MOVE_SPEED: 180, 

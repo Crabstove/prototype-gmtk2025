@@ -5,7 +5,7 @@ import { Level } from './Level';
 import { Boomerang } from './entities/Boomerang';
 import * as Input from './systems/input';
 import { TimeSlowEffect } from './systems/TimeSlowEffect';
-import { RapierWorld, PlayerState, BoomerangState, BoomerangThrowParams } from './types';
+import { RapierWorld, PlayerState, BoomerangState, BoomerangThrowParams, Vector2 } from './types';
 import { GAME_CONFIG, PHYSICS, TIME_SLOW_CONFIG, DISMOUNT_CONFIG } from './constants/game.constants';
 import "pixi.js/math-extras"
 
@@ -19,6 +19,15 @@ export class Game {
   private timeSlowEffect!: TimeSlowEffect;
   private RAPIER!: typeof RAPIER;
   private physicsAccumulator: number = 0;
+  
+  // Camera system
+  private cameraOffset: Vector2 = { x: 0, y: 0 };
+  private targetCameraOffset: Vector2 = { x: 0, y: 0 };
+  private previousPlayerY: number = 0;
+  private isBigJump: boolean = false;
+  private jumpStartY: number = 0;
+  private bigJumpTime: number = 0;
+  private cameraShake: Vector2 = { x: 0, y: 0 };
 
   public async init(RapierModule: typeof RAPIER): Promise<void> {
     this.RAPIER = RapierModule;
@@ -65,6 +74,9 @@ export class Game {
   private initializeEntities(): void {
     new Level(this.world, this.cameraContainer, this.RAPIER);
     this.player = new Player(this.world, this.cameraContainer, 100, 400, this.RAPIER);
+    
+    // Initialize camera tracking
+    this.previousPlayerY = this.player.getPosition().y;
     
     // Initialize boomerang (starts caught)
     this.boomerang = new Boomerang(this.world, this.cameraContainer, this.RAPIER);
@@ -215,17 +227,88 @@ export class Game {
     // Camera follows player's actual center (midpoint)
     const playerPos = this.player.getPosition();
     const playerVelocity = this.player.getCurrentVelocity();
+    const isGrounded = this.player.getIsGrounded();
+    const facingRight = this.player.getIsFacingRight();
     
-    // Target position for camera - centered on player
-    const cameraOffset = GAME_CONFIG.HEIGHT * 0.1;
-    const targetX = -playerPos.x + GAME_CONFIG.WIDTH / 2;
-    const targetY = -playerPos.y + GAME_CONFIG.HEIGHT / 2 + cameraOffset;
+    // Detect sudden vertical movement (big jump)
+    const yDelta = playerPos.y - this.previousPlayerY; // Signed delta for direction
+    const isAirborne = !isGrounded && !this.player.getIsRiding();
+    
+    // Start tracking big jump - detect sudden upward movement
+    if (isAirborne && yDelta < -10 && !this.isBigJump) { // Negative Y is upward
+      this.isBigJump = true;
+      this.jumpStartY = playerPos.y;
+      this.bigJumpTime = 0;
+      
+      // Calculate dynamic offset based on movement direction
+      const xDirection = playerVelocity.x !== 0 ? Math.sign(playerVelocity.x) : (facingRight ? 1 : -1);
+      
+      // Camera looks ahead to where player will LAND (the arc trajectory)
+      // When jumping up+left, player will fall down+left, so camera looks there
+      this.targetCameraOffset.x = GAME_CONFIG.WIDTH * 0.1 * xDirection; // Look in horizontal movement direction
+      this.targetCameraOffset.y = -GAME_CONFIG.HEIGHT * 0.1; // Negative to look DOWN at landing area
+      
+      // Add a tiny shake for impact feel
+      this.cameraShake.x = (Math.random() - 0.5) * 4;
+      this.cameraShake.y = (Math.random() - 0.5) * 4;
+    }
+    
+    // Track big jump duration
+    if (this.isBigJump) {
+      this.bigJumpTime += deltaTime;
+      
+      // Gradually reduce offset as jump progresses for dynamic feel
+      const jumpProgress = Math.min(this.bigJumpTime / 1.5, 1); // Normalize over 1.5 seconds
+      const easedProgress = this.easeInOutCubic(jumpProgress);
+      
+      // Interpolate offset based on jump progress
+      const xDirection = Math.sign(this.targetCameraOffset.x);
+      this.targetCameraOffset.x = GAME_CONFIG.WIDTH * 0.1 * xDirection * (1 - easedProgress * 0.3);
+      this.targetCameraOffset.y = -GAME_CONFIG.HEIGHT * 0.1 * (1 - easedProgress * 0.5);
+    }
+    
+    // Reset when landing with smooth transition
+    if (isGrounded && this.isBigJump) {
+      this.isBigJump = false;
+      this.bigJumpTime = 0;
+      // Bounce the camera slightly on landing for whimsy
+      this.targetCameraOffset.x *= 0.5;
+      this.targetCameraOffset.y = GAME_CONFIG.HEIGHT * 0.02; // Slight upward bounce
+      
+      // Small landing shake
+      this.cameraShake.x = (Math.random() - 0.5) * 2;
+      this.cameraShake.y = -3; // Upward shake on landing
+    }
+    
+    // Return to neutral when fully settled
+    if (isGrounded && !this.isBigJump && Math.abs(this.targetCameraOffset.y) < 5) {
+      this.targetCameraOffset.x *= 0.95; // Gradual return
+      this.targetCameraOffset.y *= 0.95;
+    }
+    
+    // Smooth camera offset transitions with spring-like easing
+    const offsetSmoothing = this.isBigJump ? 6.0 : 10.0; // Responsive but smooth
+    const offsetLerp = 1 - Math.pow(0.5, deltaTime * offsetSmoothing);
+    this.cameraOffset.x += (this.targetCameraOffset.x - this.cameraOffset.x) * offsetLerp;
+    this.cameraOffset.y += (this.targetCameraOffset.y - this.cameraOffset.y) * offsetLerp;
+    
+    // Apply and decay camera shake
+    this.cameraShake.x *= Math.pow(0.1, deltaTime * 8); // Fast decay
+    this.cameraShake.y *= Math.pow(0.1, deltaTime * 8);
+    
+    // Target position for camera - centered on player with dynamic offset and shake
+    const baseCameraOffset = GAME_CONFIG.HEIGHT * 0.1;
+    const targetX = -playerPos.x + GAME_CONFIG.WIDTH / 2 + this.cameraOffset.x + this.cameraShake.x;
+    const targetY = -playerPos.y + GAME_CONFIG.HEIGHT / 2 + baseCameraOffset + this.cameraOffset.y + this.cameraShake.y;
+    
+    // Store previous Y for next frame
+    this.previousPlayerY = playerPos.y;
     
     // Direct camera positioning for X (no smoothing) to eliminate horizontal jitter
     this.cameraContainer.x = targetX;
     
     // Calculate distance from player to current camera center for Y
-    const currentCameraY = -this.cameraContainer.y + GAME_CONFIG.HEIGHT / 2 - cameraOffset;
+    const currentCameraY = -this.cameraContainer.y + GAME_CONFIG.HEIGHT / 2 - baseCameraOffset;
     const distanceFromCenter = Math.abs(playerPos.y - currentCameraY);
     
     // For very fast upward movement, use minimal or no smoothing to prevent jitter
@@ -308,6 +391,10 @@ export class Game {
       this.boomerang!.checkWallCollision();
       return false;
     });
+  }
+  
+  private easeInOutCubic(t: number): number {
+    return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
   }
   
   private handleCatchWhileRiding(): void {
