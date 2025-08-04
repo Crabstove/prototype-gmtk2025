@@ -13,5 +13,5 @@ export default defineConfig({
   build: {
     target: 'esnext',
   },
-  base: "/prototype-gmtk2025"
+  base: "./"
 })

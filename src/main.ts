@@ -16,7 +16,7 @@ async function initializeGame(): Promise<void> {
     const music = new Howl({
       src: ['music.mp3'],
       loop: true,
-      volume: 0.5,
+      volume: 0.3,
     });
     music.play();
 
