@@ -92,3 +92,11 @@ export const TRAJECTORY_CONFIG = {
   HEIGHT_MULTIPLIER: 0.5,  // Peak height as ratio of throw distance
   STRAIGHT_LINE_THRESHOLD: 168,  // Angles >= this are straight lines
 } as const;
+
+export const FIRE_TRAIL_CONFIG = {
+  SPARK_VELOCITY_THRESHOLD: 300,  // Min sliding speed for sparks (based on physics research: ~12-15 m/s)
+  SPAWN_RATE: 0.005,  // Spawn interval in seconds (200 sparks/second when sliding - more dramatic)
+  MIN_LIFETIME: 0.18,  // Minimum spark lifetime in seconds (10% shorter)
+  MAX_LIFETIME: 0.36,  // Maximum spark lifetime in seconds (10% shorter)
+  PARTICLE_COUNT: 150,  // Total particle pool size (increased for more density)
+} as const;

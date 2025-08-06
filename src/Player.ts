@@ -4,6 +4,7 @@ import { RapierWorld, RapierRigidBody, Vector2, PlayerState, BoomerangThrowParam
 import { PLAYER_CONFIG, PHYSICS, BOOMERANG_CONFIG, COLLISION_GROUPS, PARRY_CONFIG, TRAJECTORY_CONFIG } from './constants/game.constants';
 import { drawBoomerangTrajectory } from './drawTrajectory';
 import { GhostTrail } from './GhostTrail';
+import { FireTrail } from './systems/FireTrail';
 
 export class Player {
   private world: RapierWorld;
@@ -13,6 +14,7 @@ export class Player {
   private fireEffect!: PIXI.Graphics;
   private glowAura!: PIXI.Graphics;
   private ghostTrail!: GhostTrail;
+  private fireTrail!: FireTrail;
   private container: PIXI.Container;
   private RAPIER: typeof RAPIER;
   private fireAnimationFrame: number = 0;
@@ -53,6 +55,7 @@ export class Player {
     
     this.createRigidBody(x, y);
     this.createGhostTrail();
+    this.createFireTrail();
     this.createGlowAura();
     this.createSprite();
     this.createFireEffect();
@@ -103,6 +106,11 @@ export class Player {
       initialAlpha: 0.6, // Set to 0.6
       trailColor: 0xff0000 // Red ghosts
     });
+  }
+  
+  private createFireTrail(): void {
+    // Fire trail sparks when sliding
+    this.fireTrail = new FireTrail(this.container);
   }
 
   private createGlowAura(): void {
@@ -548,6 +556,7 @@ export class Player {
     this.updateSprite();
     this.updateFireAnimation(deltaTime);
     this.updateGhostTrail(deltaTime);
+    this.updateFireTrail(deltaTime);
     this.updateStateMachine(deltaTime);
   }
 
@@ -670,6 +679,20 @@ export class Player {
       position.x,
       position.y,
       intensity
+    );
+  }
+  
+  private updateFireTrail(deltaTime: number): void {
+    const position = this.getPosition();
+    const isSliding = this.currentState === PlayerState.Sliding;
+    
+    // Update fire trail - sparks only appear when sliding
+    this.fireTrail.update(
+      deltaTime,
+      isSliding,
+      position.x,
+      position.y,
+      this.velocity.x
     );
   }
 
