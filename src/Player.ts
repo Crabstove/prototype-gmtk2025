@@ -600,8 +600,13 @@ export class Player {
         // Transition to crouch when much slower
         if (Math.abs(this.velocity.x) < 80) { // Higher threshold since we decay slower
           this.currentState = PlayerState.Crouching;
-          // Keep some momentum when transitioning to crouch
-          this.velocity.x = this.velocity.x > 0 ? PLAYER_CONFIG.CROUCH_MOVE_SPEED : -PLAYER_CONFIG.CROUCH_MOVE_SPEED;
+          // Only maintain crouch speed if player is actively moving
+          if (this.targetVelocityX !== 0) {
+            this.velocity.x = this.velocity.x > 0 ? PLAYER_CONFIG.CROUCH_MOVE_SPEED : -PLAYER_CONFIG.CROUCH_MOVE_SPEED;
+          } else {
+            // If no input, let velocity decay naturally
+            this.velocity.x *= 0.8; // Quick deceleration
+          }
         }
       }
     } else {
@@ -744,7 +749,12 @@ export class Player {
       const vel = this.rigidBody.linvel();
       if (Math.abs(vel.x) < 1 && Math.abs(vel.y) < 1) {
         // Apply small nudge to unstick
-        this.velocity.y = 10; // Small downward push
+        this.velocity.y = 50; // Stronger downward push to ensure unsticking
+        
+        // Also apply a tiny horizontal nudge based on last facing direction
+        if (this.targetVelocityX !== 0) {
+          this.velocity.x = this.targetVelocityX > 0 ? 5 : -5;
+        }
       }
     }
   }
@@ -785,7 +795,14 @@ export class Player {
   }
   
   private getGroundedState(): PlayerState {
-    return this.isGrounded ? PlayerState.Idle : PlayerState.Airborne;
+    if (!this.isGrounded) {
+      return PlayerState.Airborne;
+    }
+    
+    // When grounded, check velocity to determine if moving or idle
+    return Math.abs(this.velocity.x) > PLAYER_CONFIG.VELOCITY_THRESHOLD
+      ? PlayerState.Moving
+      : PlayerState.Idle;
   }
 
   private handleStateSpecificBehavior(deltaTime: number): void {
@@ -907,7 +924,10 @@ export class Player {
       this.updateColliderSize(PLAYER_CONFIG.WIDTH, PLAYER_CONFIG.HEIGHT);
     } else if (state === PlayerState.Sliding) {
       // Exit sliding state when crouch key is released
-      this.currentState = PlayerState.Crouching;
+      // Check velocity to determine if we should go to idle or moving
+      this.currentState = Math.abs(this.velocity.x) > PLAYER_CONFIG.VELOCITY_THRESHOLD
+        ? PlayerState.Moving
+        : PlayerState.Idle;
       this.updateColliderSize(PLAYER_CONFIG.WIDTH, PLAYER_CONFIG.HEIGHT);
     }
   }
@@ -916,6 +936,9 @@ export class Player {
     if (!this.hasBoomerang) {
       this.currentState = PlayerState.Blocking;
       this.parryWindowTime = PARRY_CONFIG.WINDOW_DURATION;
+      
+      // Stop horizontal movement when blocking
+      this.targetVelocityX = 0;
     }
   }
   
